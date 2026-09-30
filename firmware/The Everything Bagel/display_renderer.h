@@ -1,104 +1,133 @@
+#pragma once
 #include "esphome.h"
 
-extern esphome::font::Font *montserrat_14;
-extern esphome::font::Font *montserrat_20;
-extern esphome::font::Font *montserrat_24;
-extern esphome::font::Font *droplet;
-extern esphome::font::Font *temperature;
+// Layout for the GDEY0426T82 4.26" panel: 800x480, landscape.
+//
+// +--------------------------------------------------------------+
+// | Date                     Air Quality                    Time |
+// +--------------------+-----------------------------------------+
+// |                    |  CO2        |  Temp       |  Humidity   |
+// |       [icon]       |-------------+-------------+-------------|
+// |       Status       |  PM1        |  PM2.5      |  PM4        |
+// |       Action       |-------------+-------------+-------------|
+// |       Reason       |  PM10       |  VOC        |  NOx        |
+// +--------------------+-----------------------------------------+
+
+// The fonts used below (montserrat_20/24/36/48) are the ids from the YAML; ESPHome declares
+// them in main.cpp before this header is included.
+
+namespace layout {
+static const int WIDTH = 800;
+static const int HEIGHT = 480;
+static const int MARGIN = 16;
+static const int HEADER_HEIGHT = 50;
+
+// Left panel: recommendation
+static const int LEFT_WIDTH = 330;
+static const int LEFT_CENTER = LEFT_WIDTH / 2;
+
+// Right panel: 3x3 grid of readings
+static const int GRID_X = LEFT_WIDTH + 12;
+static const int GRID_Y = HEADER_HEIGHT + 6;
+static const int GRID_COLS = 3;
+static const int GRID_ROWS = 3;
+static const int TILE_WIDTH = (WIDTH - MARGIN - GRID_X) / GRID_COLS;
+static const int TILE_HEIGHT = (HEIGHT - MARGIN - GRID_Y) / GRID_ROWS;
+static const int TILE_PADDING = 10;
+}  // namespace layout
 
 // Handles NaN while the sensor boots
-inline std::string format_sensor(const char* format, float val) {
+inline std::string format_sensor(const char *format, float val) {
     if (std::isnan(val)) {
-        return "--"; // Simply return dashes for booting/NaN sensors
+        return "--";  // Simply return dashes for booting/NaN sensors
     }
     char buf[32];
     snprintf(buf, sizeof(buf), format, val);
     return std::string(buf);
 }
 
-// 2. Define your layout function
+// One cell of the readings grid: label top-left, large value in the middle, unit underneath
+inline void draw_tile(esphome::display::Display &it, int col, int row, const char *label, const char *unit,
+                      const std::string &value, Color ink) {
+    const int x = layout::GRID_X + col * layout::TILE_WIDTH;
+    const int y = layout::GRID_Y + row * layout::TILE_HEIGHT;
+    const int center_x = x + layout::TILE_WIDTH / 2;
+
+    it.print(x + layout::TILE_PADDING, y + layout::TILE_PADDING, montserrat_20, ink,
+             esphome::display::TextAlign::TOP_LEFT, label);
+    it.print(center_x, y + layout::TILE_HEIGHT / 2 + 4, montserrat_48, ink, esphome::display::TextAlign::CENTER,
+             value.c_str());
+    it.print(center_x, y + layout::TILE_HEIGHT - layout::TILE_PADDING, montserrat_20, ink,
+             esphome::display::TextAlign::BOTTOM_CENTER, unit);
+}
+
 // Note: We pass the display buffer 'it' by reference (&)
-void draw_main_screen(esphome::display::Display &it, esphome::image::Image *icon_image, esphome::ESPTime current_time, const std::string &aqi_status, const std::string &aqi_action, const std::string &aqi_reason, float temp, float hum, float pm100, float co2, float voc) {
-    // Defining colors (ensures colors are not inverted on monochrome)
-    Color background_color = Color(0, 0, 0);
-    Color primary_color = Color(255, 255, 255);
+void draw_main_screen(esphome::display::Display &it, esphome::image::Image *icon_image,
+                      esphome::ESPTime current_time, const std::string &aqi_status, const std::string &aqi_action,
+                      const std::string &aqi_reason, float temp, float hum, float pm10, float pm25, float pm40,
+                      float pm100, float co2, float voc, float nox) {
+    // Black ink on a white background
+    Color background_color = Color::WHITE;
+    Color primary_color = Color::BLACK;
 
-    // Background colour
     it.fill(background_color);
-    
-    // Sanitising the time
+
+    // Header
+    const int header_text_y = (layout::HEADER_HEIGHT - 4) / 2;
     if (current_time.is_valid()) {
-        // strftime takes: X, Y, Font, Color, Format string, Time object
-        it.strftime(3, 3, montserrat_14, primary_color, esphome::display::TextAlign::TOP_LEFT, "%b %d", current_time);
-        it.strftime(119, 3, montserrat_14, primary_color, esphome::display::TextAlign::TOP_RIGHT, "%H:%M", current_time);
+        // strftime takes: X, Y, Font, Color, Align, Format string, Time object
+        it.strftime(layout::MARGIN, header_text_y, montserrat_24, primary_color,
+                    esphome::display::TextAlign::CENTER_LEFT, "%a %b %d", current_time);
+        it.strftime(layout::WIDTH - layout::MARGIN, header_text_y, montserrat_24, primary_color,
+                    esphome::display::TextAlign::CENTER_RIGHT, "%H:%M", current_time);
     } else {
         // Fallback for before time sync is complete
-        it.print(3, 3, montserrat_14, primary_color, esphome::display::TextAlign::TOP_LEFT, "----");
-        it.print(119, 3, montserrat_14, primary_color, esphome::display::TextAlign::TOP_RIGHT, "--:--");
+        it.print(layout::MARGIN, header_text_y, montserrat_24, primary_color,
+                 esphome::display::TextAlign::CENTER_LEFT, "----");
+        it.print(layout::WIDTH - layout::MARGIN, header_text_y, montserrat_24, primary_color,
+                 esphome::display::TextAlign::CENTER_RIGHT, "--:--");
     }
-    
-    // Top Section
-    it.image(61, 61, icon_image, esphome::display::ImageAlign::CENTER_HORIZONTAL, primary_color);
-    it.printf(61, 30, montserrat_24, primary_color, esphome::display::TextAlign::CENTER_HORIZONTAL, aqi_status.c_str());
+    it.print(layout::WIDTH / 2, header_text_y, montserrat_24, primary_color, esphome::display::TextAlign::CENTER,
+             "Air Quality");
+    it.filled_rectangle(layout::MARGIN, layout::HEADER_HEIGHT - 3, layout::WIDTH - 2 * layout::MARGIN, 3,
+                        primary_color);
 
-    // Middle Section
-    it.print(61, 158, montserrat_20, primary_color, esphome::display::TextAlign::CENTER_HORIZONTAL, aqi_action.c_str());
-    it.printf(61, 188, montserrat_14, primary_color, esphome::display::TextAlign::CENTER_HORIZONTAL, aqi_reason.c_str());
+    // Left panel: icon + recommendation
+    it.image(layout::LEFT_CENTER, layout::HEADER_HEIGHT + 20, icon_image, esphome::display::ImageAlign::TOP_CENTER,
+             primary_color, background_color);
+    it.print(layout::LEFT_CENTER, 250, montserrat_48, primary_color, esphome::display::TextAlign::TOP_CENTER,
+             aqi_status.c_str());
+    it.print(layout::LEFT_CENTER, 318, montserrat_36, primary_color, esphome::display::TextAlign::TOP_CENTER,
+             aqi_action.c_str());
+    it.print(layout::LEFT_CENTER, 372, montserrat_24, primary_color, esphome::display::TextAlign::TOP_CENTER,
+             aqi_reason.c_str());
 
+    // Divider between the panels
+    it.filled_rectangle(layout::LEFT_WIDTH, layout::HEADER_HEIGHT + 16, 3,
+                        layout::HEIGHT - layout::HEADER_HEIGHT - 32, primary_color);
 
-    it.line(8, 218, 114, 218, primary_color);
-
-    // Bottom Section
-    // it.print(-6, 222, thermometer, primary_color, "\U0000e1ff");
-    it.print(4, 222, montserrat_20, primary_color, esphome::display::TextAlign::TOP_LEFT, format_sensor("%.0f°C", temp).c_str());
-    // it.print(62, 222, droplet, primary_color, "\U0000f87e");
-    it.print(118, 222, montserrat_20, primary_color, esphome::display::TextAlign::TOP_RIGHT, format_sensor("%.0f%%%", hum).c_str());
-}
-
-void draw_detail_screen(esphome::display::Display &it, esphome::ESPTime current_time, float temp, float hum, float pm10, float pm25, float pm40, float pm100, float co2, float voc, float nox) {
-    // Defining colors (ensures colors are not inverted on monochrome)
-    Color background_color = Color(0, 0, 0);
-    Color primary_color = Color(255, 255, 255);
-
-    // Background colour
-    it.fill(background_color);
-    
-    if (current_time.is_valid()) {
-        // strftime takes: X, Y, Font, Color, Format string, Time object
-        it.strftime(3, 3, montserrat_14, primary_color, esphome::display::TextAlign::TOP_LEFT, "%b %d", current_time);
-        it.strftime(119, 3, montserrat_14, primary_color, esphome::display::TextAlign::TOP_RIGHT, "%H:%M", current_time);
-    } else {
-        // Fallback for before time sync is complete
-        it.print(3, 3, montserrat_14, primary_color, esphome::display::TextAlign::TOP_LEFT, "----");
-        it.print(119, 3, montserrat_14, primary_color, esphome::display::TextAlign::TOP_RIGHT, "--:--");
+    // Right panel: grid lines
+    const int grid_right = layout::GRID_X + layout::GRID_COLS * layout::TILE_WIDTH;
+    const int grid_bottom = layout::GRID_Y + layout::GRID_ROWS * layout::TILE_HEIGHT;
+    for (int r = 1; r < layout::GRID_ROWS; r++) {
+        const int y = layout::GRID_Y + r * layout::TILE_HEIGHT;
+        it.line(layout::GRID_X + layout::TILE_PADDING, y, grid_right - layout::TILE_PADDING, y, primary_color);
     }
-     
-    // Top Section
-    it.print(4, 18, montserrat_20, primary_color, "PM1");
-    it.print(4, 40, montserrat_20, primary_color, "PM2.5");
-    it.print(4, 60, montserrat_20, primary_color, "PM4");
-    it.print(4, 80, montserrat_20, primary_color, "PM10");
-    it.printf(119, 20, montserrat_20, primary_color, esphome::display::TextAlign::TOP_RIGHT, "%.1f", pm10);
-    it.printf(119, 40, montserrat_20, primary_color, esphome::display::TextAlign::TOP_RIGHT, "%.1f", pm25);
-    it.printf(119, 60, montserrat_20, primary_color, esphome::display::TextAlign::TOP_RIGHT, "%.1f", pm40);
-    it.printf(119, 80, montserrat_20, primary_color, esphome::display::TextAlign::TOP_RIGHT, "%.1f", pm100);
+    for (int c = 1; c < layout::GRID_COLS; c++) {
+        const int x = layout::GRID_X + c * layout::TILE_WIDTH;
+        it.line(x, layout::GRID_Y + layout::TILE_PADDING, x, grid_bottom - layout::TILE_PADDING, primary_color);
+    }
 
-    it.line(8, 110, 114, 110, primary_color);
+    // Right panel: readings
+    draw_tile(it, 0, 0, "CO2", "ppm", format_sensor("%.0f", co2), primary_color);
+    draw_tile(it, 1, 0, "Temp", "°C", format_sensor("%.1f", temp), primary_color);
+    draw_tile(it, 2, 0, "Humidity", "%", format_sensor("%.0f", hum), primary_color);
 
-    // Middle Section
-    it.print(46, 116, thermometer, primary_color, "\U0000e1ff");
-    it.printf(119, 116, montserrat_20, primary_color, esphome::display::TextAlign::TOP_RIGHT, "%.0f °C", temp);
-    it.print(46, 143, droplet, primary_color, "\U0000f87e");
-    it.printf(119, 143, montserrat_20, primary_color, esphome::display::TextAlign::TOP_RIGHT, "%.0f  %%", hum);
+    draw_tile(it, 0, 1, "PM1", "µg/m³", format_sensor("%.1f", pm10), primary_color);
+    draw_tile(it, 1, 1, "PM2.5", "µg/m³", format_sensor("%.1f", pm25), primary_color);
+    draw_tile(it, 2, 1, "PM4", "µg/m³", format_sensor("%.1f", pm40), primary_color);
 
-    it.line(8, 168, 114, 168, primary_color);
-
-    // Bottom Section
-    it.print(4, 173, montserrat_20, primary_color, "CO2");
-    it.print(4, 199, montserrat_20, primary_color, "VOC");
-    it.print(4, 222, montserrat_20, primary_color, "NOx");
-    it.printf(119, 173, montserrat_20, primary_color, esphome::display::TextAlign::TOP_RIGHT, "%.0f", co2);
-    it.printf(119, 199, montserrat_20, primary_color, esphome::display::TextAlign::TOP_RIGHT, "%.0f", voc);
-    it.printf(119, 222, montserrat_20, primary_color, esphome::display::TextAlign::TOP_RIGHT, "%.0f", nox);
+    draw_tile(it, 0, 2, "PM10", "µg/m³", format_sensor("%.1f", pm100), primary_color);
+    draw_tile(it, 1, 2, "VOC", "index", format_sensor("%.0f", voc), primary_color);
+    draw_tile(it, 2, 2, "NOx", "index", format_sensor("%.0f", nox), primary_color);
 }
-

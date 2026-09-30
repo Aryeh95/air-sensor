@@ -1,38 +1,23 @@
+# Air quality monitor for:
+#   - Seeed Studio XIAO ePaper Display Board EE05 (XIAO ESP32-S3 Plus + 24-pin e-paper driver)
+#   - Good Display GDEY0426T82 4.26" 800x480 black/white e-paper (SSD1677)
+#   - Sensirion SEN66
+# No custom PCB required. See the README for wiring.
 esphome:
   name: "air-quality-display"
-  platformio_options:
-    board_build.f_cpu: 80000000L
   includes:
     - aqi_algo.h
     - display_renderer.h
-  
-  #Switch over to the external antenna on boot
   on_boot:
-      priority: 800
-      then:
-        - wifi.disable:
-        - output.turn_off: pin3 # activate RF Switch control
-        - delay: 100ms
-        - switch.turn_on: pin14 
-        - wifi.enable:
-        - script.execute: calculate_aqi
-
-#Required for external antenna
-output:
-    platform: gpio
-    id: pin3
-    pin: GPIO03
-
-# Confirm in HA that the external antenna is in use
-switch:
-    platform: gpio
-    pin: GPIO14
-    restore_mode: ALWAYS_OFF 
-    name: "External Wifi Antenna"
-    id: pin14
+    priority: -100
+    then:
+      - script.execute: calculate_aqi
 
 esp32:
-  board: esp32-c6-devkitc-1
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  # Keep the ESP32 cool so it doesn't skew the SEN66 temperature reading
+  cpu_frequency: 80MHZ
   framework:
     type: esp-idf
 
@@ -58,57 +43,72 @@ wifi:
 captive_portal:
 
 logger:
+  # GPIO43 (the UART0 TX pin) is used as the e-paper power switch below
+  hardware_uart: USB_SERIAL_JTAG
 
+# The EE05 powers the e-paper (and the VCC_3V3 pin on its extension header) through a
+# load switch on D6 / GPIO43, which is pulled low by default. Turn it on at boot.
+switch:
+  - platform: gpio
+    id: epaper_power
+    pin: GPIO43
+    restore_mode: ALWAYS_ON
+    internal: true
+
+# SEN66 is wired to D4 (SDA) / D5 (SCL) on the EE05 extension header
 i2c:
-  sda: GPIO22 
-  scl: GPIO23
+  sda: GPIO5
+  scl: GPIO6
+  frequency: 100kHz
   scan: true
 
 spi:
-  clk_pin: GPIO19
-  mosi_pin: GPIO18
+  clk_pin: GPIO7
+  mosi_pin: GPIO9
 
-# 1. Define Fonts (Upload .ttf files to config folder)
+# Key1 on the side of the EE05 forces a redraw
+binary_sensor:
+  - platform: gpio
+    id: key1
+    pin:
+      number: GPIO2
+      inverted: true
+    on_press:
+      - script.execute: calculate_aqi
+
 font:
-  - file: "gfonts://Material+Symbols+Outlined"
-    id: thermometer
-    size: 20
-    glyphs: ["\U0000e1ff"]
-  
-  - file: "gfonts://Material+Symbols+Outlined"
-    id: droplet
-    size: 20
-    glyphs: ["\U0000f87e"]
-
-  - file: 'gfonts://Montserrat'
-    id: montserrat_14
-    size: 14
-    glyphs: "!\/%()+&@=,-_.:°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ abcdefghijklmnopqrstuvwxyzåäö"
-
   - file: 'gfonts://Montserrat'
     id: montserrat_20
     size: 20
-    glyphs: "!\/%()+&=,-_.:°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ abcdefghijklmnopqrstuvwxyzåäö"
-    
+    glyphs: "!/%()+&=,-_.:°µ³0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ abcdefghijklmnopqrstuvwxyzåäö"
+
   - file: 'gfonts://Montserrat'
     id: montserrat_24
     size: 24
-    glyphs: "!\/%()+&=,-_.:°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ abcdefghijklmnopqrstuvwxyzåäö"
+    glyphs: "!/%()+&=,-_.:°µ³0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ abcdefghijklmnopqrstuvwxyzåäö"
+
+  - file: 'gfonts://Montserrat@600'
+    id: montserrat_36
+    size: 36
+    glyphs: "!/%()+&=,-_.:°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ abcdefghijklmnopqrstuvwxyzåäö"
+
+  - file: 'gfonts://Montserrat@600'
+    id: montserrat_48
+    size: 48
+    glyphs: "!/%()+&=,-_.:°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ abcdefghijklmnopqrstuvwxyzåäö"
 
 image:
   defaults:
     type: binary
-    resize: 100x100
+    resize: 160x160
   images:
     - file: "open_window.png"
       id: img_window_open
     - file: "purifier.png"
       id: img_purifier
-      resize: 90x90
+      resize: 150x150
     - file: "ok.png"
       id: img_ok
-    
-
 
 time:
   - platform: homeassistant
@@ -125,7 +125,7 @@ sensor:
   - platform: sen6x
     type: SEN66
     update_interval: 30s
-    
+
     temperature:
       name: Temperature
       id: sen66_temp
@@ -183,7 +183,7 @@ script:
           float pm2 = id(sen66_pm25).has_state() ? id(sen66_pm25).state : NAN;
           float voc = id(sen66_voc).has_state() ? id(sen66_voc).state : NAN;
           float hum = id(sen66_humidity).has_state() ? id(sen66_humidity).state : NAN;
-          
+
           // 2. Fetch outdoor sensor data from HA (fallback to NAN if disconnected)
           float ext_co2 = id(ha_outdoor_co2).has_state() ? id(ha_outdoor_co2).state : NAN;
           float ext_pm2 = id(ha_outdoor_pm25).has_state() ? id(ha_outdoor_pm25).state : NAN;
@@ -195,63 +195,43 @@ script:
           id(aqi_status).publish_state(advice.status);
           id(aqi_action).publish_state(advice.action);
           id(aqi_reason).publish_state(advice.reason);
-          
+
       # 5. Tell the display to draw the new values
       - component.update: internal_display
 
-interval:
-  - interval: 15s
-    then:
-      - display.page.show_next: internal_display
-      - component.update: internal_display  
-
 display:
-  - platform: waveshare_epaper
+  - platform: epaper_spi
     id: internal_display
-    model: 2.13inv3
-    cs_pin: GPIO1
-    dc_pin: GPIO21
-    busy_pin: GPIO17
-    reset_pin: GPIO0
+    # GDEY0426T82 uses the SSD1677 controller. This model preset matches it and sets the
+    # EE04/EE05 pins: CS=GPIO44, DC=GPIO10, RESET=GPIO38, BUSY=GPIO4
+    model: seeed-ee04-mono-4.26
     update_interval: never
-    auto_clear_enabled: true
-    rotation: 180
-    pages:
-      - id: main_page
-        lambda: |-
-          esphome::image::Image* current_icon = AQIAlgo::get_icon_from_action(
-              id(aqi_action).state,
-              id(img_window_open),
-              id(img_purifier),
-              id(img_ok)
-          );  
+    # Partial refreshes in between; a full (flashing) refresh every ~15 minutes clears ghosting
+    full_update_every: 30
+    # Landscape. Use rotation: 180 if you mount it the other way up.
+    rotation: 0
+    lambda: |-
+      esphome::image::Image* current_icon = AQIAlgo::get_icon_from_action(
+          id(aqi_action).state,
+          id(img_window_open),
+          id(img_purifier),
+          id(img_ok)
+      );
 
-          draw_main_screen(
-              it,
-              current_icon,
-              id(HA_time).now(),
-              id(aqi_status).state,
-              id(aqi_action).state,
-              id(aqi_reason).state,
-              id(sen66_temp).state,
-              id(sen66_humidity).state,
-              id(sen66_pm100).state,
-              id(sen66_co2).state,
-              id(sen66_voc).state
-          );
-      - id: detail_page
-        lambda: |-
-          draw_detail_screen(
-              it,
-              id(HA_time).now(),
-              id(sen66_temp).state,
-              id(sen66_humidity).state,
-              id(sen66_pm10).state,
-              id(sen66_pm25).state,
-              id(sen66_pm40).state,
-              id(sen66_pm100).state,
-              id(sen66_co2).state,
-              id(sen66_voc).state,
-              id(sen66_nox).state
-          );
-
+      draw_main_screen(
+          it,
+          current_icon,
+          id(HA_time).now(),
+          id(aqi_status).state,
+          id(aqi_action).state,
+          id(aqi_reason).state,
+          id(sen66_temp).state,
+          id(sen66_humidity).state,
+          id(sen66_pm10).state,
+          id(sen66_pm25).state,
+          id(sen66_pm40).state,
+          id(sen66_pm100).state,
+          id(sen66_co2).state,
+          id(sen66_voc).state,
+          id(sen66_nox).state
+      );
