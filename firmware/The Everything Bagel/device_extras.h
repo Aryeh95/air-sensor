@@ -36,6 +36,68 @@ inline AirNowResult parse_airnow(const std::string &body) {
 }
 
 // ---------------------------------------------------------------------------
+// PurpleAir sensor data
+// https://api.purpleair.com/#api-sensors-get-sensor-data
+// Requested fields: name, location_type, last_seen, humidity, pm2.5_cf_1, pm2.5_cf_1_a, pm2.5_cf_1_b
+// ---------------------------------------------------------------------------
+struct PurpleAirResult {
+  bool ok = false;
+  float pm25 = NAN;  // EPA-corrected PM2.5, ug/m3
+  float raw_cf1 = NAN;
+  float humidity = NAN;
+  std::string name;
+  std::string error;
+};
+
+inline PurpleAirResult parse_purpleair(const std::string &body) {
+  PurpleAirResult r;
+  JsonDocument doc = esphome::json::parse_json(body);
+  JsonObject root = doc.as<JsonObject>();
+  if (root.isNull()) {
+    r.error = "Unreadable response";
+    return r;
+  }
+  JsonObject s = root["sensor"];
+  if (s.isNull()) {
+    const char *why = root["description"] | (const char *) nullptr;
+    if (why == nullptr)
+      why = root["error"] | "unknown error";
+    r.error = std::string("No sensor data: ") + why;
+    return r;
+  }
+  r.name = s["name"] | "";
+  if ((s["location_type"] | 0) != 0) {
+    r.error = "Sensor '" + r.name + "' is marked as indoor";
+    return r;
+  }
+  const uint32_t data_time = root["data_time_stamp"] | 0u;
+  const uint32_t last_seen = s["last_seen"] | 0u;
+  if (data_time && last_seen && data_time - last_seen > 30 * 60) {
+    r.error = "Sensor '" + r.name + "' hasn't reported for over 30 minutes";
+    return r;
+  }
+  const float a = s["pm2.5_cf_1_a"] | NAN;
+  const float b = s["pm2.5_cf_1_b"] | NAN;
+  if (!std::isnan(a) && !std::isnan(b)) {
+    if (!purpleair_channels_agree(a, b)) {
+      r.error = "Channels A and B disagree (" + std::to_string(a) + " vs " + std::to_string(b) + ")";
+      return r;
+    }
+    r.raw_cf1 = (a + b) / 2;
+  } else {
+    r.raw_cf1 = s["pm2.5_cf_1"] | NAN;  // single-channel sensor
+  }
+  r.humidity = s["humidity"] | NAN;
+  r.pm25 = epa_correct_purpleair(r.raw_cf1, r.humidity);
+  if (std::isnan(r.pm25)) {
+    r.error = "Missing PM2.5 or humidity in the response";
+    return r;
+  }
+  r.ok = true;
+  return r;
+}
+
+// ---------------------------------------------------------------------------
 // Full refresh on demand (Key3). The epaper_spi driver decides between a full and a partial
 // refresh with a protected counter and has no public way to reset it, so this reaches it
 // through a derived class. The next update after calling this is a full refresh.

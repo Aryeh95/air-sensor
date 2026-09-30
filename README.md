@@ -99,16 +99,20 @@ Any EE05 + 4.26" enclosure works as long as the SEN66's inlets and outlet can re
 #### 5. Firmware
 The config is `firmware/The Everything Bagel/air_sensor_epaper_ee05.yaml`. Compile it yourself with ESPHome Builder or the ESPHome CLI (Method B above), after copying `aqi_algo.h`, `display_renderer.h`, `device_extras.h` and the three `.png` icons next to it. It needs a recent ESPHome (it uses the `epaper_spi` display platform; tested with 2026.6).
 
-**Secrets.** Put these in your `secrets.yaml` (the one in the repo only has placeholders; don't commit real values): `wifi_ssid`, `wifi_password`, `api_encryption_key`, `ota_password`, `fallback_ap_password`, `airnow_api_key` and `airnow_zip`.
+**Secrets.** Put these in your `secrets.yaml` (the one in the repo only has placeholders; don't commit real values): `wifi_ssid`, `wifi_password`, `api_encryption_key`, `ota_password`, `fallback_ap_password`, `purpleair_api_key`, `purpleair_sensor_index`, `airnow_api_key` and `airnow_zip`.
 
 **Settings** at the top of the config (`substitutions:`):
 *   `use_fahrenheit`: show °F on the display. Home Assistant still gets °C and converts it itself.
 *   `temperature_offset`: if the case makes the sensor read warm, e.g. `"-1.5"`. Humidity is recalculated to match, so it stays correct.
 *   `timezone`: for the clock.
 
-**Standalone or with Home Assistant.** The device doesn't need Home Assistant. The clock uses internet time (SNTP), outdoor air quality comes straight from AirNow, and the automatic reboot ESPHome normally does after 15 minutes without a Home Assistant connection is turned off. If Home Assistant is connected, it gets every reading, the advice text, and indoor and outdoor AQI sensors.
+**Standalone or with Home Assistant.** The device doesn't need Home Assistant. The clock uses internet time (SNTP), outdoor air quality comes straight from PurpleAir or AirNow, and the automatic reboot ESPHome normally does after 15 minutes without a Home Assistant connection is turned off. If Home Assistant is connected, it gets every reading, the advice text, and indoor and outdoor AQI sensors.
 
-**Outdoor air quality (AirNow, US only).** Get a free API key at [docs.airnowapi.org](https://docs.airnowapi.org/) and set `airnow_api_key` and `airnow_zip`. The device fetches current observations for your ZIP code every 30 minutes. It shows the outdoor AQI in the header and uses outdoor PM2.5 to decide whether airing out is a good idea. Without a key, that part is simply skipped.
+**Outdoor air quality.** The device uses outdoor PM2.5 to decide whether airing out is a good idea, and shows the outdoor AQI in the header. It has two sources:
+*   **PurpleAir** (first choice): a nearby outdoor community sensor, fetched every 10 minutes and adjusted with the US EPA correction for PurpleAir sensors. Readings are skipped if the sensor is indoor, hasn't reported for 30 minutes, or its two laser counters disagree. You need a read API key from [develop.purpleair.com](https://develop.purpleair.com/) (PurpleAir charges per request from a points balance; one sensor every 10 minutes uses little) and the sensor's number, which is the `select=` value in its link on the PurpleAir map.
+*   **AirNow** (fallback, US only): used when PurpleAir has no recent reading. Free API key from [docs.airnowapi.org](https://docs.airnowapi.org/), plus your ZIP code. Fetched every 30 minutes.
+
+Either or both can be left unset; without any outdoor data that part is simply skipped. Home Assistant gets the outdoor AQI and PM2.5 in use, and which source they came from.
 
 **The screen**
 *   The main page shows the recommendation, icon and indoor US AQI on the left, and all 9 readings on the right.

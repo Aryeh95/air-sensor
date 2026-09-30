@@ -85,6 +85,43 @@ inline const char *us_aqi_category(int aqi) {
 }
 
 // ---------------------------------------------------------------------------
+// PurpleAir correction
+// ---------------------------------------------------------------------------
+// US EPA correction for PurpleAir's Plantower sensors (Barkjohn et al. 2021, extended for smoke,
+// as used on the AirNow Fire and Smoke Map). cf1 is the "CF=1" PM2.5 reading averaged over the
+// A and B channels (ug/m3), rh is the PurpleAir's own humidity reading (%).
+inline float epa_correct_purpleair(float cf1, float rh) {
+  if (std::isnan(cf1) || std::isnan(rh))
+    return NAN;
+  const float x = std::max(cf1, 0.0f);
+  float pm;
+  if (x < 30) {
+    pm = 0.524f * x - 0.0862f * rh + 5.75f;
+  } else if (x < 50) {
+    const float w = x / 20 - 1.5f;
+    pm = (0.786f * w + 0.524f * (1 - w)) * x - 0.0862f * rh + 5.75f;
+  } else if (x < 210) {
+    pm = 0.786f * x - 0.0862f * rh + 5.75f;
+  } else if (x < 260) {
+    const float w = x / 50 - 4.2f;
+    pm = (0.69f * w + 0.786f * (1 - w)) * x - 0.0862f * rh * (1 - w) + 2.966f * w + 5.75f * (1 - w) +
+         8.84e-4f * x * x * w;
+  } else {
+    pm = 2.966f + 0.69f * x + 8.84e-4f * x * x;
+  }
+  return std::max(pm, 0.0f);
+}
+
+// EPA quality check: the two laser counters must roughly agree (not more than 5 ug/m3 AND 70% apart)
+inline bool purpleair_channels_agree(float a, float b) {
+  if (std::isnan(a) || std::isnan(b))
+    return false;
+  const float diff = std::fabs(a - b);
+  const float mean = (a + b) / 2;
+  return !(diff > 5.0f && mean > 0 && diff / mean > 0.7f);
+}
+
+// ---------------------------------------------------------------------------
 // Humidity compensation for a temperature offset
 // ---------------------------------------------------------------------------
 // Saturation vapour pressure (hPa), Magnus formula

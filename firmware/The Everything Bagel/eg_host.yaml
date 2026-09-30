@@ -24,7 +24,7 @@ esphome:
             ui.history.push_bucket_for_preview(co2, pm25);
           }
           ui.history.set_trends_for_preview(Trend::UP, Trend::DOWN);
-          set_outdoor(42, pm25_from_us_aqi(42));
+          set_outdoor(OutdoorSource::PURPLEAIR, 42, 10.1f);
           record_reading(1214, 8);
 
 host:

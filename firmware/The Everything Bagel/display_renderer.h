@@ -212,10 +212,14 @@ struct Readings {
 
 enum class SensorState { WAITING, OK, OFFLINE, MISSING };
 
+// Outdoor air quality sources, in order of preference
+enum class OutdoorSource { PURPLEAIR = 0, AIRNOW = 1 };
+
 struct UiState {
   static constexpr uint32_t OFFLINE_MS = 2UL * 60UL * 1000UL;        // no reading for 2 min = offline
   static constexpr uint32_t STARTUP_MS = 2UL * 60UL * 1000UL;        // no reading at all after 2 min = missing
-  static constexpr uint32_t OUTDOOR_STALE_MS = 3UL * 3600UL * 1000UL;  // AirNow data older than 3 h is ignored
+  static constexpr uint32_t PURPLEAIR_STALE_MS = 45UL * 60UL * 1000UL;  // PurpleAir older than 45 min: use AirNow
+  static constexpr uint32_t AIRNOW_STALE_MS = 3UL * 3600UL * 1000UL;     // AirNow older than 3 h is ignored
   static constexpr uint32_t TREND_PAGE_MS = 2UL * 60UL * 1000UL;     // trend page returns to main after 2 min
 
   DisplayModel model;
@@ -227,10 +231,12 @@ struct UiState {
   ReadingHistory history;
   bool seen_reading = false;
   uint32_t last_reading_ms = 0;
-  bool outdoor_seen = false;
-  uint32_t outdoor_ms = 0;
-  int outdoor_aqi = -1;
-  float outdoor_pm25 = NAN;
+  struct Outdoor {
+    bool seen = false;
+    uint32_t ms = 0;
+    int aqi = -1;
+    float pm25 = NAN;
+  } outdoor[2];  // indexed by OutdoorSource
 };
 inline UiState ui;
 
@@ -243,12 +249,13 @@ inline void record_reading(float co2, float pm25) {
   ui.history.add(ui.last_reading_ms, co2, pm25);
 }
 
-// A successful outdoor update (AirNow)
-inline void set_outdoor(int aqi, float pm25) {
-  ui.outdoor_seen = true;
-  ui.outdoor_ms = millis();
-  ui.outdoor_aqi = aqi;
-  ui.outdoor_pm25 = pm25;
+// A successful outdoor update from PurpleAir or AirNow
+inline void set_outdoor(OutdoorSource source, int aqi, float pm25) {
+  auto &o = ui.outdoor[(int) source];
+  o.seen = true;
+  o.ms = millis();
+  o.aqi = aqi;
+  o.pm25 = pm25;
 }
 
 inline void request_redraw() { ui.force = true; }
@@ -259,7 +266,26 @@ inline void toggle_page() {
   ui.force = true;
 }
 
-inline bool outdoor_fresh(uint32_t now) { return ui.outdoor_seen && now - ui.outdoor_ms < UiState::OUTDOOR_STALE_MS; }
+// The outdoor reading to use right now: PurpleAir if it's recent, otherwise AirNow
+struct ActiveOutdoor {
+  bool ok = false;        // a recent reading is available
+  bool seen_any = false;  // any source has ever reported
+  int aqi = -1;
+  float pm25 = NAN;
+  const char *source = "";
+};
+inline ActiveOutdoor active_outdoor(uint32_t now) {
+  ActiveOutdoor a;
+  const auto &pa = ui.outdoor[(int) OutdoorSource::PURPLEAIR];
+  const auto &an = ui.outdoor[(int) OutdoorSource::AIRNOW];
+  a.seen_any = pa.seen || an.seen;
+  if (pa.seen && now - pa.ms < UiState::PURPLEAIR_STALE_MS) {
+    a = {true, true, pa.aqi, pa.pm25, "PurpleAir"};
+  } else if (an.seen && now - an.ms < UiState::AIRNOW_STALE_MS) {
+    a = {true, true, an.aqi, an.pm25, "AirNow"};
+  }
+  return a;
+}
 
 inline SensorState sensor_state(uint32_t now) {
   if (!ui.seen_reading)
@@ -283,6 +309,8 @@ struct Frame {
 };
 
 // Works out the advice and what should be on screen. frame.redraw says whether it changed.
+// The outdoor AQI in the header is PM2.5-based from PurpleAir, or AirNow's overall AQI (which
+// also counts ozone) when PurpleAir isn't available.
 inline Frame update_state(Readings r, esphome::ESPTime time, bool wifi_ok, bool fahrenheit) {
   using namespace aqi_limits;
   const uint32_t now = millis();
@@ -300,8 +328,7 @@ inline Frame update_state(Readings r, esphome::ESPTime time, bool wifi_ok, bool 
       f.advice = {"No Sensor", "Check Wiring", "SEN66 not found", AdviceIcon::SENSOR_FAULT};
       break;
     default:
-      f.advice = AQIAlgo::get_advice(r.co2, r.pm25, r.voc, r.humidity,
-                                     outdoor_fresh(now) ? ui.outdoor_pm25 : NAN);
+      f.advice = AQIAlgo::get_advice(r.co2, r.pm25, r.voc, r.humidity, active_outdoor(now).pm25);
       break;
   }
   f.indoor_aqi = us_aqi_from_pm25(r.pm25);
@@ -321,13 +348,12 @@ inline Frame update_state(Readings r, esphome::ESPTime time, bool wifi_ok, bool 
   m.wifi_ok = wifi_ok;
 
   char buf[48];
-  if (ui.outdoor_seen) {
-    if (outdoor_fresh(now)) {
-      snprintf(buf, sizeof(buf), "Outside AQI %d · %s", ui.outdoor_aqi, us_aqi_category(ui.outdoor_aqi));
-      m.outdoor = buf;
-    } else {
-      m.outdoor = "Outside AQI --";
-    }
+  ActiveOutdoor outdoor = active_outdoor(now);
+  if (outdoor.ok) {
+    snprintf(buf, sizeof(buf), "Outside AQI %d · %s", outdoor.aqi, us_aqi_category(outdoor.aqi));
+    m.outdoor = buf;
+  } else if (outdoor.seen_any) {
+    m.outdoor = "Outside AQI --";
   }
 
   m.advice = f.advice;

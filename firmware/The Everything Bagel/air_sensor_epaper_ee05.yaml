@@ -2,8 +2,9 @@
 #   - Seeed Studio XIAO ePaper Display Board EE05 (XIAO ESP32-S3 Plus + 24-pin e-paper driver)
 #   - Good Display GDEY0426T82 / Seeed 4.26" 800x480 black/white e-paper (SSD1677)
 #   - Sensirion SEN66
-# Works standalone: time comes from the internet (SNTP) and outdoor air quality from AirNow.
-# Home Assistant is optional. Put your passwords, AirNow key and ZIP code in secrets.yaml.
+# Works standalone: time comes from the internet (SNTP) and outdoor air quality from a nearby
+# PurpleAir sensor, with AirNow as the fallback. Home Assistant is optional.
+# Put your passwords, API keys, PurpleAir sensor number and ZIP code in secrets.yaml.
 substitutions:
   # Show temperature in Fahrenheit on the display (Home Assistant always gets Celsius)
   use_fahrenheit: "false"
@@ -12,7 +13,12 @@ substitutions:
   temperature_offset: "0.0"
   # For the clock: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
   timezone: "America/New_York"
-  # Outdoor air quality from AirNow (US). Get a free key at https://docs.airnowapi.org/
+  # Outdoor air quality, first choice: a nearby outdoor PurpleAir sensor (EPA-corrected).
+  # Read key from https://develop.purpleair.com/; the sensor number is the "select=" value in
+  # its map link. Set purpleair_sensor_index to "0" to turn PurpleAir off.
+  purpleair_api_key: !secret purpleair_api_key
+  purpleair_sensor_index: !secret purpleair_sensor_index
+  # Fallback: AirNow (US). Free key from https://docs.airnowapi.org/
   airnow_api_key: !secret airnow_api_key
   airnow_zip: !secret airnow_zip
 
@@ -52,6 +58,8 @@ wifi:
     password: !secret wifi_password
   on_connect:
     - delay: 5s
+    - script.execute: fetch_purpleair
+    - delay: 2s
     - script.execute: fetch_airnow
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
@@ -236,14 +244,14 @@ sensor:
 
   - platform: template
     id: outdoor_aqi
-    name: "Outdoor AQI (AirNow)"
+    name: "Outdoor AQI"
     icon: "mdi:weather-hazy"
     accuracy_decimals: 0
     update_interval: never
 
   - platform: template
     id: outdoor_pm25
-    name: "Outdoor PM2.5 (AirNow)"
+    name: "Outdoor PM2.5"
     unit_of_measurement: "µg/m³"
     accuracy_decimals: 1
     update_interval: never
@@ -263,6 +271,11 @@ text_sensor:
     id: aqi_reason
     name: "AQI Action Reason"
     icon: "mdi:text-box-search-outline"
+
+  - platform: template
+    id: outdoor_source
+    name: "Outdoor Data Source"
+    icon: "mdi:map-marker-radius"
 
 script:
   # Works out the advice, updates Home Assistant and redraws the display if anything changed
@@ -286,7 +299,46 @@ script:
 
           if (f.redraw) id(internal_display).update();
 
-  # Current outdoor air quality for your ZIP code from AirNow
+  # Current PM2.5 from a nearby outdoor PurpleAir sensor, EPA-corrected
+  - id: fetch_purpleair
+    mode: single
+    then:
+      - if:
+          condition:
+            and:
+              - wifi.connected:
+              - lambda: 'return std::string("${purpleair_sensor_index}") != "0";'
+          then:
+            - http_request.get:
+                url: "https://api.purpleair.com/v1/sensors/${purpleair_sensor_index}?fields=name,location_type,last_seen,humidity,pm2.5_cf_1,pm2.5_cf_1_a,pm2.5_cf_1_b"
+                request_headers:
+                  X-API-Key: "${purpleair_api_key}"
+                capture_response: true
+                max_response_buffer_size: 2kB
+                on_response:
+                  then:
+                    - lambda: |-
+                        if (response->status_code != 200) {
+                          ESP_LOGW("purpleair", "PurpleAir returned HTTP %d (check the API key and sensor number)", response->status_code);
+                          return;
+                        }
+                        PurpleAirResult r = parse_purpleair(body);
+                        if (!r.ok) {
+                          ESP_LOGW("purpleair", "Not using PurpleAir: %s", r.error.c_str());
+                          return;
+                        }
+                        ESP_LOGI("purpleair", "%s: raw %.1f, humidity %.0f%%, EPA-corrected PM2.5 %.1f ug/m3",
+                                 r.name.c_str(), r.raw_cf1, r.humidity, r.pm25);
+                        set_outdoor(OutdoorSource::PURPLEAIR, us_aqi_from_pm25(r.pm25), r.pm25);
+                    - script.execute: publish_outdoor
+                on_error:
+                  then:
+                    - logger.log:
+                        level: WARN
+                        tag: purpleair
+                        format: "PurpleAir request failed"
+
+  # Current outdoor air quality for your ZIP code from AirNow (fallback)
   - id: fetch_airnow
     mode: single
     then:
@@ -312,10 +364,8 @@ script:
                         }
                         float pm25 = pm25_from_us_aqi(result.pm25_aqi);
                         ESP_LOGI("airnow", "Outdoor AQI %d, PM2.5 AQI %d (%.1f ug/m3)", result.aqi, result.pm25_aqi, pm25);
-                        set_outdoor(result.aqi, pm25);
-                        id(outdoor_aqi).publish_state(result.aqi);
-                        id(outdoor_pm25).publish_state(pm25);
-                    - script.execute: refresh
+                        set_outdoor(OutdoorSource::AIRNOW, result.aqi, pm25);
+                    - script.execute: publish_outdoor
                 on_error:
                   then:
                     - logger.log:
@@ -323,15 +373,35 @@ script:
                         tag: airnow
                         format: "AirNow request failed"
 
+  # Sends the outdoor reading in use to Home Assistant and updates the display
+  - id: publish_outdoor
+    mode: queued
+    then:
+      - lambda: |-
+          ActiveOutdoor o = active_outdoor(millis());
+          float aqi = o.ok ? o.aqi : NAN;
+          if (!(std::isnan(aqi) && std::isnan(id(outdoor_aqi).state)) && id(outdoor_aqi).state != aqi)
+            id(outdoor_aqi).publish_state(aqi);
+          if (!(std::isnan(o.pm25) && std::isnan(id(outdoor_pm25).state)) && id(outdoor_pm25).state != o.pm25)
+            id(outdoor_pm25).publish_state(o.pm25);
+          std::string source = o.ok ? o.source : "none";
+          if (id(outdoor_source).state != source) id(outdoor_source).publish_state(source);
+      - script.execute: refresh
+
 interval:
   # Keeps the clock current and notices when the sensor stops responding
   - interval: 30s
     then:
       - script.execute: refresh
+  # PurpleAir updates every couple of minutes; every 10 min keeps API usage low
+  - interval: 10min
+    then:
+      - script.execute: fetch_purpleair
   # AirNow updates hourly
   - interval: 30min
     then:
       - script.execute: fetch_airnow
+      - script.execute: publish_outdoor
 
 display:
   - platform: epaper_spi
