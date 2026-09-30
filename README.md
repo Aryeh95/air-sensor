@@ -53,6 +53,7 @@ Assemble by connecting the 3V, GND, SDA and SCL pins as shown in the video.
 ### Full Variant (EE05 + 4.26" e-paper, no custom PCB)
 
 ![Display layout preview](firmware/The%20Everything%20Bagel/layout_preview.png)
+![Trend page preview](firmware/The%20Everything%20Bagel/layout_preview_trend.png)
 
 #### 1. Parts
 
@@ -96,13 +97,35 @@ Flash the firmware and watch the logs for a few minutes. If you see `Found i2c d
 Any EE05 + 4.26" enclosure works as long as the SEN66's inlets and outlet can reach room air. For the "Cattt Casing" (EE05 frame / back plate / back cap / stand), print the [SEN66 side-pod](enclosure/ee05_sen66_pod/) and make one cable hole in the back plate. Details are in that folder's README.
 
 #### 5. Firmware
-The config is `firmware/The Everything Bagel/air_sensor_epaper_ee05.yaml`. Compile it yourself with ESPHome Builder or the ESPHome CLI (Method B above), after copying `aqi_algo.h`, `display_renderer.h` and the three `.png` icons next to it. It needs a recent ESPHome (it uses the `epaper_spi` display platform; tested with 2026.6).
+The config is `firmware/The Everything Bagel/air_sensor_epaper_ee05.yaml`. Compile it yourself with ESPHome Builder or the ESPHome CLI (Method B above), after copying `aqi_algo.h`, `display_renderer.h`, `device_extras.h` and the three `.png` icons next to it. It needs a recent ESPHome (it uses the `epaper_spi` display platform; tested with 2026.6).
 
-*   The display shows everything on one 800x480 landscape screen: recommendation on the left, all 9 readings on the right.
-*   It refreshes on every new SEN66 reading (every 30 s) with a partial refresh, and does a full refresh every 30 updates to clear ghosting. Change `full_update_every` to adjust this.
-*   Press **Key1** on the side of the EE05 to force a redraw.
-*   If the image comes out mirrored or upside down on your panel, change `rotation:` (0/90/180/270), or add `transform: {mirror_x: false, mirror_y: false}` to the display.
-*   To preview the layout on your computer without hardware, run `esphome run eg_host.yaml` (needs SDL2).
+**Secrets.** Put these in your `secrets.yaml` (the one in the repo only has placeholders; don't commit real values): `wifi_ssid`, `wifi_password`, `api_encryption_key`, `ota_password`, `fallback_ap_password`, `airnow_api_key` and `airnow_zip`.
+
+**Settings** at the top of the config (`substitutions:`):
+*   `use_fahrenheit`: show °F on the display. Home Assistant still gets °C and converts it itself.
+*   `temperature_offset`: if the case makes the sensor read warm, e.g. `"-1.5"`. Humidity is recalculated to match, so it stays correct.
+*   `timezone`: for the clock.
+
+**Standalone or with Home Assistant.** The device doesn't need Home Assistant. The clock uses internet time (SNTP), outdoor air quality comes straight from AirNow, and the automatic reboot ESPHome normally does after 15 minutes without a Home Assistant connection is turned off. If Home Assistant is connected, it gets every reading, the advice text, and indoor and outdoor AQI sensors.
+
+**Outdoor air quality (AirNow, US only).** Get a free API key at [docs.airnowapi.org](https://docs.airnowapi.org/) and set `airnow_api_key` and `airnow_zip`. The device fetches current observations for your ZIP code every 30 minutes. It shows the outdoor AQI in the header and uses outdoor PM2.5 to decide whether airing out is a good idea. Without a key, that part is simply skipped.
+
+**The screen**
+*   The main page shows the recommendation, icon and indoor US AQI on the left, and all 9 readings on the right.
+*   Readings past their limit are drawn white-on-black. The limits are CO2 over 1000 ppm, PM2.5 over 25, PM10 over 45, VOC index 150+, NOx index 20+ and humidity outside 30–60%. They're all in `aqi_limits` in `aqi_algo.h`.
+*   Arrows on CO2 and PM2.5 show a clear rise or fall over the last 10 minutes.
+*   The header shows the date, outdoor AQI and time, plus a Wi-Fi-off icon when the connection drops.
+*   If the SEN66 stops responding, the screen says so and shows dashes instead of old readings.
+*   The screen only redraws when something visible changes, with a partial refresh. It does a full refresh every 30 redraws to clear ghosting.
+
+**Keys on the side of the EE05**
+*   **Key1**: redraw now.
+*   **Key2**: switch to the 24-hour CO2 and PM2.5 trend page. It returns to the main page after 2 minutes. The history is kept in memory, so it starts again after a reboot.
+*   **Key3**: full refresh, to clear ghosting.
+
+If the image comes out mirrored or upside down on your panel, change `rotation:` (0/90/180/270), or add `transform: {mirror_x: false, mirror_y: false}` to the display.
+
+**Desktop preview.** `esphome run eg_host.yaml` shows the screens with made-up readings (needs SDL2). Add `-s preview_page 1` for the trend page, or `-s use_fahrenheit true -s preview_wifi false`.
 
 ## Home Assistant Dashboard
 

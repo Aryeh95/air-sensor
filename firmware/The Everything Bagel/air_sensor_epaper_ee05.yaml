@@ -1,17 +1,31 @@
 # Air quality monitor for:
 #   - Seeed Studio XIAO ePaper Display Board EE05 (XIAO ESP32-S3 Plus + 24-pin e-paper driver)
-#   - Good Display GDEY0426T82 4.26" 800x480 black/white e-paper (SSD1677)
+#   - Good Display GDEY0426T82 / Seeed 4.26" 800x480 black/white e-paper (SSD1677)
 #   - Sensirion SEN66
-# No custom PCB required. See the README for wiring.
+# Works standalone: time comes from the internet (SNTP) and outdoor air quality from AirNow.
+# Home Assistant is optional. Put your passwords, AirNow key and ZIP code in secrets.yaml.
+substitutions:
+  # Show temperature in Fahrenheit on the display (Home Assistant always gets Celsius)
+  use_fahrenheit: "false"
+  # Added to the SEN66 temperature in °C. If the case makes it read 1.5 °C warm, use "-1.5".
+  # Humidity is corrected to match.
+  temperature_offset: "0.0"
+  # For the clock: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+  timezone: "America/New_York"
+  # Outdoor air quality from AirNow (US). Get a free key at https://docs.airnowapi.org/
+  airnow_api_key: !secret airnow_api_key
+  airnow_zip: !secret airnow_zip
+
 esphome:
   name: "air-quality-display"
   includes:
     - aqi_algo.h
     - display_renderer.h
+    - device_extras.h
   on_boot:
     priority: -100
     then:
-      - script.execute: calculate_aqi
+      - script.execute: refresh
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -21,24 +35,29 @@ esp32:
   framework:
     type: esp-idf
 
-# This key can be generated in ESPHome Builder, or removed
+# For Home Assistant (optional). Without it connected, the device still works on its own.
 api:
   encryption:
-    key: "yourEncryptionKey"
+    key: !secret api_encryption_key
+  # ESPHome normally reboots after 15 min without a Home Assistant connection; don't.
+  reboot_timeout: 0s
 
 ota:
   - platform: esphome
-    password: "yourEspHomePassword"
+    password: !secret ota_password
 
 wifi:
   networks:
   - ssid: !secret wifi_ssid
     password: !secret wifi_password
+  on_connect:
+    - delay: 5s
+    - script.execute: fetch_airnow
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
     ssid: "Air Sensor Fallback"
-    password: "password"
+    password: !secret fallback_ap_password
 
 captive_portal:
 
@@ -70,62 +89,101 @@ spi:
   clk_pin: GPIO7
   mosi_pin: GPIO9
 
-# Key1 on the side of the EE05 forces a redraw
+http_request:
+  timeout: 10s
+
+time:
+  - platform: sntp
+    id: sys_time
+    timezone: ${timezone}
+
+# The three keys on the side of the EE05 (active low, external pull-ups)
 binary_sensor:
+  # Key1: redraw now
   - platform: gpio
     id: key1
     pin:
       number: GPIO2
       inverted: true
+    filters:
+      - delayed_on: 20ms
     on_press:
-      - script.execute: calculate_aqi
+      - lambda: request_redraw();
+      - script.execute: refresh
+  # Key2: switch between the main page and the 24-hour trend page
+  - platform: gpio
+    id: key2
+    pin:
+      number: GPIO3
+      inverted: true
+      ignore_strapping_warning: true
+    filters:
+      - delayed_on: 20ms
+    on_press:
+      - lambda: toggle_page();
+      - script.execute: refresh
+  # Key3: full refresh (clears ghosting)
+  - platform: gpio
+    id: key3
+    pin:
+      number: GPIO8
+      inverted: true
+    filters:
+      - delayed_on: 20ms
+    on_press:
+      - lambda: |-
+          EPaperFullRefresh::arm(id(internal_display));
+          request_redraw();
+      - script.execute: refresh
 
 font:
   - file: 'gfonts://Montserrat'
     id: montserrat_20
     size: 20
-    glyphs: "!/%()+&=,-_.:°µ³0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ abcdefghijklmnopqrstuvwxyzåäö"
+    glyphs: "!/%()+&=,-_.:·°µ³0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ abcdefghijklmnopqrstuvwxyzåäö"
 
   - file: 'gfonts://Montserrat'
     id: montserrat_24
     size: 24
-    glyphs: "!/%()+&=,-_.:°µ³0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ abcdefghijklmnopqrstuvwxyzåäö"
+    glyphs: "!/%()+&=,-_.:·°µ³0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ abcdefghijklmnopqrstuvwxyzåäö"
 
   - file: 'gfonts://Montserrat@600'
     id: montserrat_36
     size: 36
-    glyphs: "!/%()+&=,-_.:°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ abcdefghijklmnopqrstuvwxyzåäö"
+    glyphs: "!/%()+&=,-_.:·°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ abcdefghijklmnopqrstuvwxyzåäö"
 
   - file: 'gfonts://Montserrat@600'
     id: montserrat_48
     size: 48
-    glyphs: "!/%()+&=,-_.:°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ abcdefghijklmnopqrstuvwxyzåäö"
+    glyphs: "!/%()+&=,-_.:·°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ abcdefghijklmnopqrstuvwxyzåäö"
 
 image:
   defaults:
     type: binary
-    resize: 160x160
+    resize: 140x140
   images:
     - file: "open_window.png"
       id: img_window_open
     - file: "purifier.png"
       id: img_purifier
-      resize: 150x150
+      resize: 130x130
     - file: "ok.png"
       id: img_ok
-
-time:
-  - platform: homeassistant
-    id: HA_time
+    - file: "mdi:window-closed-variant"
+      id: img_keep_closed
+    - file: "mdi:water-off-outline"
+      id: img_too_dry
+    - file: "mdi:water-alert-outline"
+      id: img_too_humid
+    - file: "mdi:timer-sand"
+      id: img_waiting
+    - file: "mdi:alert-circle-outline"
+      id: img_fault
+    - file: "mdi:wifi-off"
+      id: img_wifi_off
+      resize: 28x28
 
 sensor:
-  - platform: homeassistant
-    id: ha_outdoor_pm25
-    entity_id: sensor.outdoor_pm25
-  - platform: homeassistant
-    id: ha_outdoor_co2
-    entity_id: sensor.outdoor_co2
-
   - platform: sen6x
     type: SEN66
     update_interval: 30s
@@ -134,18 +192,20 @@ sensor:
       name: Temperature
       id: sen66_temp
       accuracy_decimals: 1
+      filters:
+        - offset: ${temperature_offset}
     humidity:
       name: Humidity
       id: sen66_humidity
+      filters:
+        # Keep humidity consistent with the corrected temperature
+        - lambda: return compensate_humidity(x, id(sen66_temp).raw_state, ${temperature_offset});
     voc:
       name: VOC Index
       id: sen66_voc
     nox:
       name: NOx Index
       id: sen66_nox
-    co2:
-      name: Carbon Dioxide
-      id: sen66_co2
     pm_1_0:
       name: PM <1µm Weight concentration
       id: sen66_pm10
@@ -158,9 +218,35 @@ sensor:
     pm_10_0:
       name: PM <10µm Weight concentration
       id: sen66_pm100
+    co2:
+      name: Carbon Dioxide
+      id: sen66_co2
+      # CO2 is the last value the driver publishes in each reading, so everything is fresh here
       on_value:
         then:
-          - script.execute: calculate_aqi
+          - lambda: record_reading(x, id(sen66_pm25).state);
+          - script.execute: refresh
+
+  - platform: template
+    id: indoor_aqi
+    name: "Indoor US AQI (PM2.5)"
+    icon: "mdi:air-filter"
+    accuracy_decimals: 0
+    update_interval: never
+
+  - platform: template
+    id: outdoor_aqi
+    name: "Outdoor AQI (AirNow)"
+    icon: "mdi:weather-hazy"
+    accuracy_decimals: 0
+    update_interval: never
+
+  - platform: template
+    id: outdoor_pm25
+    name: "Outdoor PM2.5 (AirNow)"
+    unit_of_measurement: "µg/m³"
+    accuracy_decimals: 1
+    update_interval: never
 
 text_sensor:
   - platform: template
@@ -179,29 +265,73 @@ text_sensor:
     icon: "mdi:text-box-search-outline"
 
 script:
-  - id: calculate_aqi
+  # Works out the advice, updates Home Assistant and redraws the display if anything changed
+  - id: refresh
+    mode: queued
     then:
       - lambda: |-
-          // 1. Fetch live sensor data (fallback to NAN if sensor fails/is booting)
-          float co2 = id(sen66_co2).has_state() ? id(sen66_co2).state : NAN;
-          float pm2 = id(sen66_pm25).has_state() ? id(sen66_pm25).state : NAN;
-          float voc = id(sen66_voc).has_state() ? id(sen66_voc).state : NAN;
-          float hum = id(sen66_humidity).has_state() ? id(sen66_humidity).state : NAN;
+          auto state_of = [](sensor::Sensor *s) { return s->has_state() ? s->state : NAN; };
+          Readings r{state_of(id(sen66_temp)), state_of(id(sen66_humidity)), state_of(id(sen66_pm10)),
+                     state_of(id(sen66_pm25)), state_of(id(sen66_pm40)), state_of(id(sen66_pm100)),
+                     state_of(id(sen66_co2)), state_of(id(sen66_voc)), state_of(id(sen66_nox))};
+          Frame f = update_state(r, id(sys_time).now(), wifi::global_wifi_component->is_connected(),
+                                 ${use_fahrenheit});
 
-          // 2. Fetch outdoor sensor data from HA (fallback to NAN if disconnected)
-          float ext_co2 = id(ha_outdoor_co2).has_state() ? id(ha_outdoor_co2).state : NAN;
-          float ext_pm2 = id(ha_outdoor_pm25).has_state() ? id(ha_outdoor_pm25).state : NAN;
+          if (id(aqi_status).state != f.advice.status) id(aqi_status).publish_state(f.advice.status);
+          if (id(aqi_action).state != f.advice.action) id(aqi_action).publish_state(f.advice.action);
+          if (id(aqi_reason).state != f.advice.reason) id(aqi_reason).publish_state(f.advice.reason);
+          float aqi = f.indoor_aqi >= 0 ? f.indoor_aqi : NAN;
+          if (!(std::isnan(aqi) && std::isnan(id(indoor_aqi).state)) && id(indoor_aqi).state != aqi)
+            id(indoor_aqi).publish_state(aqi);
 
-          // 3. Process the data
-          AQIAdvice advice = AQIAlgo::get_advice(co2, pm2, voc, hum, ext_co2, ext_pm2);
+          if (f.redraw) id(internal_display).update();
 
-          // 4. Publish to our text sensors
-          id(aqi_status).publish_state(advice.status);
-          id(aqi_action).publish_state(advice.action);
-          id(aqi_reason).publish_state(advice.reason);
+  # Current outdoor air quality for your ZIP code from AirNow
+  - id: fetch_airnow
+    mode: single
+    then:
+      - if:
+          condition:
+            wifi.connected:
+          then:
+            - http_request.get:
+                url: "https://www.airnowapi.org/aq/observation/zipCode/current/?format=application/json&zipCode=${airnow_zip}&distance=25&API_KEY=${airnow_api_key}"
+                capture_response: true
+                max_response_buffer_size: 4kB
+                on_response:
+                  then:
+                    - lambda: |-
+                        if (response->status_code != 200) {
+                          ESP_LOGW("airnow", "AirNow returned HTTP %d (check the API key and ZIP code)", response->status_code);
+                          return;
+                        }
+                        AirNowResult result = parse_airnow(body);
+                        if (!result.ok) {
+                          ESP_LOGW("airnow", "No AirNow observations for this ZIP code");
+                          return;
+                        }
+                        float pm25 = pm25_from_us_aqi(result.pm25_aqi);
+                        ESP_LOGI("airnow", "Outdoor AQI %d, PM2.5 AQI %d (%.1f ug/m3)", result.aqi, result.pm25_aqi, pm25);
+                        set_outdoor(result.aqi, pm25);
+                        id(outdoor_aqi).publish_state(result.aqi);
+                        id(outdoor_pm25).publish_state(pm25);
+                    - script.execute: refresh
+                on_error:
+                  then:
+                    - logger.log:
+                        level: WARN
+                        tag: airnow
+                        format: "AirNow request failed"
 
-      # 5. Tell the display to draw the new values
-      - component.update: internal_display
+interval:
+  # Keeps the clock current and notices when the sensor stops responding
+  - interval: 30s
+    then:
+      - script.execute: refresh
+  # AirNow updates hourly
+  - interval: 30min
+    then:
+      - script.execute: fetch_airnow
 
 display:
   - platform: epaper_spi
@@ -210,32 +340,12 @@ display:
     # EE04/EE05 pins: CS=GPIO44, DC=GPIO10, RESET=GPIO38, BUSY=GPIO4
     model: seeed-ee04-mono-4.26
     update_interval: never
-    # Partial refreshes in between; a full (flashing) refresh every ~15 minutes clears ghosting
+    # Partial refreshes in between; a full (flashing) refresh every 30 redraws clears ghosting.
+    # Key3 forces one at any time.
     full_update_every: 30
     # Landscape. Use rotation: 180 if you mount it the other way up.
     rotation: 0
     lambda: |-
-      esphome::image::Image* current_icon = AQIAlgo::get_icon_from_action(
-          id(aqi_action).state,
-          id(img_window_open),
-          id(img_purifier),
-          id(img_ok)
-      );
-
-      draw_main_screen(
-          it,
-          current_icon,
-          id(HA_time).now(),
-          id(aqi_status).state,
-          id(aqi_action).state,
-          id(aqi_reason).state,
-          id(sen66_temp).state,
-          id(sen66_humidity).state,
-          id(sen66_pm10).state,
-          id(sen66_pm25).state,
-          id(sen66_pm40).state,
-          id(sen66_pm100).state,
-          id(sen66_co2).state,
-          id(sen66_voc).state,
-          id(sen66_nox).state
-      );
+      draw_screen(it, Icons{id(img_ok), id(img_window_open), id(img_purifier), id(img_keep_closed),
+                            id(img_too_dry), id(img_too_humid), id(img_waiting), id(img_fault),
+                            id(img_wifi_off)});
