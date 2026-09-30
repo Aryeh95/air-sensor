@@ -59,36 +59,43 @@ Assemble by connecting the 3V, GND, SDA and SCL pins as shown in the video.
 | Part | Notes |
 | --- | --- |
 | [Sensirion SEN66](https://sensirion.com/products/catalog/SEN66) | The air quality sensor |
+| JST GH 1.25 mm 6-pin cable, single-ended (plug on one end, bare wires on the other), 10–15 cm | SEN66 to EE05. Some SEN66 sellers include one |
 | [Seeed Studio XIAO ePaper Display Board EE05](https://wiki.seeedstudio.com/epaper_ee05/) | XIAO ESP32-S3 Plus and 24-pin e-paper driver on one board. Replaces the custom PCB **and** the separate XIAO |
 | [Good Display GDEY0426T82](https://buyepaper.com/products/gdey0426t82) | 4.26" 800x480 black/white e-paper (SSD1677), 24-pin FPC. Plugs straight into the EE05 |
-| JST GH 1.25 mm 6-pin to female Dupont cable, e.g. [this one](https://www.tinytronics.nl/en/cables-and-connectors/cables-and-adapters/jst-compatible/jst-ghr-06v-s-to-dupont-female-compatible-cable-6p-15cm) | SEN66 to EE05. Keep the I²C wiring under ~10 cm |
-| 2.54 mm male pin header | Solder to the EE05's extension IO pads (not fitted from the factory) |
-| 2x 10 kΩ resistor | I²C pull-ups from SDA and SCL to 3.3 V. The SEN66 datasheet requires external pull-ups and the EE05 has none on D4/D5 |
 | USB-C cable + 5 V supply | The SEN66's fan runs continuously, so run it from USB rather than a battery |
 | EE05 + 4.26" enclosure (e.g. the "Cattt Casing") + the [SEN66 side-pod](enclosure/ee05_sen66_pod/) | Optional. The pod needs 2 screws 2 mm longer than the ones used for the right-hand side of the back plate |
-
-**Optional:** instead of the loose resistors, an [Adafruit SEN6x Breakout (#6331)](https://www.adafruit.com/product/6331) plus a JST GH 6-pin cable and a STEMMA QT to female jumper cable. It adds its own 3.3 V regulator and level shifter and gives you plug-in connectors on both ends. Check its schematic for the pull-ups before relying on them.
+| *Only if needed:* 2x 10 kΩ resistors and a little heat-shrink | I²C pull-ups, if the sensor doesn't work reliably on the ESP32's internal pull-ups (see step 3 below) |
 
 #### 2. Wiring
 
-1. Plug the GDEY0426T82's ribbon cable into the EE05's 24-pin FPC connector (contacts facing the contacts on the connector, then close the latch).
-2. Wire the SEN66 to the EE05's extension IO header:
+1. **Display.** Flip up the latch on the EE05's 24-pin connector, slide the GDEY0426T82's ribbon in straight with its gold contacts facing up (away from the board; Seeed's schematic lists it as a top-contact connector), and close the latch.
+2. **Find pin 1 on the sensor cable.** Plug the cable into the SEN66. With the connector side facing you and the round fan housing on your right, pin 1 is at the left end. Wire colours aren't standardised, so go by position.
+3. **Wires 5 and 6** are tied inside the sensor to GND and VDD. Cut them short and cover the ends with heat-shrink.
+4. **Solder the other four into the EE05's pads.** Strip about 3 mm of each wire and solder it into its hole. The pads are the two rows of holes along the long edges beside the XIAO, labelled on the back of the board. If you're using the side-pod, feed the wires through the back plate's slot first.
 
-| SEN66 pin | Signal | EE05 |
+| SEN66 pin | Signal | EE05 pad |
 | --- | --- | --- |
-| 1 | VDD | VCC_3V3 (3.3 V) |
-| 2 | GND | GND |
-| 3 | SDA | D4 / GPIO5 (+10 kΩ to 3.3 V) |
-| 4 | SCL | D5 / GPIO6 (+10 kΩ to 3.3 V) |
-| 5, 6 | GND / VDD (internally tied to 2 / 1) | leave unconnected |
+| 1 | VDD | **3V3** |
+| 2 | GND | **GND** |
+| 3 | SDA | **D4** (GPIO5) |
+| 4 | SCL | **D5** (GPIO6) |
+| 5, 6 | GND / VDD | not connected, insulated |
 
-The EE05's e-paper and VCC_3V3 rail are switched by D6 / GPIO43. The firmware turns it on at boot, so do not use D6 for anything else. The e-paper itself uses D3 (BUSY), D7 (CS), D8 (SCK), D10 (MOSI), D11 (RST) and D16 (DC), and Key1 to Key3 are on D1, D2 and D9. Check the pad names against the silkscreen and the [EE05 schematic](https://files.seeedstudio.com/wiki/Epaper/EE05/XIAO_ePaper_Display_Board_Ex05_V1.0.pdf) before soldering.
+*   **Don't use the 5V pad** next to GND. The SEN66 is a 3.3 V part (3.6 V absolute maximum).
+*   **3V3 only has power while the firmware is running.** The EE05 switches the e-paper and the 3V3 pad with D6 / GPIO43, and the firmware turns it on at boot, so don't use D6 for anything else.
+*   **Other pins in use:** the e-paper uses D3 (BUSY), D7 (CS), D8 (SCK), D10 (MOSI), D11 (RST) and D16 (DC). Key1 to Key3 are on D1, D2 and D9, and D0/D12 handle battery sensing. Check the pad names against the silkscreen and the [EE05 schematic](https://files.seeedstudio.com/wiki/Epaper/EE05/XIAO_ePaper_Display_Board_Ex05_V1.0.pdf) before soldering.
 
-#### 3. Enclosure
+#### 3. Test, and add pull-ups only if needed
+
+Sensirion's datasheet asks for 10 kΩ pull-up resistors on SDA and SCL. This build starts without them and relies on the ESP32's weak internal pull-ups, which usually work with a short cable at 100 kHz. (The original project's minimal variant runs the same way.)
+
+Flash the firmware and watch the logs for a few minutes. If you see `Found i2c device at address 0x6B` and readings arrive every 30 s with no I²C or `sen6x` errors, you're done. If the sensor isn't found, or readings drop out, add two 10 kΩ pull-up resistors, spliced into the cable: one from wire 3 (SDA) to wire 1 (VDD), one from wire 4 (SCL) to wire 1. Slide heat-shrink on first, then cut each wire, twist the ends together with the resistor leg, solder, and shrink.
+
+#### 4. Enclosure
 
 Any EE05 + 4.26" enclosure works as long as the SEN66's inlets and outlet can reach room air. For the "Cattt Casing" (EE05 frame / back plate / back cap / stand), print the [SEN66 side-pod](enclosure/ee05_sen66_pod/) and make one cable hole in the back plate. Details are in that folder's README.
 
-#### 4. Firmware
+#### 5. Firmware
 The config is `firmware/The Everything Bagel/air_sensor_epaper_ee05.yaml`. Compile it yourself with ESPHome Builder or the ESPHome CLI (Method B above), after copying `aqi_algo.h`, `display_renderer.h` and the three `.png` icons next to it. It needs a recent ESPHome (it uses the `epaper_spi` display platform; tested with 2026.6).
 
 *   The display shows everything on one 800x480 landscape screen: recommendation on the left, all 9 readings on the right.

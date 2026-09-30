@@ -55,10 +55,14 @@ switch:
     restore_mode: ALWAYS_ON
     internal: true
 
-# SEN66 is wired to D4 (SDA) / D5 (SCL) on the EE05 extension header
+# SEN66 is wired to D4 (SDA) / D5 (SCL) on the EE05 extension header.
+# The ESP32's weak internal pull-ups are usually enough for a short cable at 100kHz.
+# If the sensor isn't found or drops out, add 10k pull-ups to 3.3V (see the README).
 i2c:
   sda: GPIO5
   scl: GPIO6
+  sda_pullup_enabled: true
+  scl_pullup_enabled: true
   frequency: 100kHz
   scan: true
 

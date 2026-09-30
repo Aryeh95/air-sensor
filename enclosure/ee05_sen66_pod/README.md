@@ -16,7 +16,7 @@ None of the original parts need reprinting. You only need one cable hole in the 
   pod's outer wall: inlets at the bottom, fan outlet at the top. Sensirion's guidelines allow
   sideways-facing openings, the solid wall between the windows keeps inlet and outlet air apart, and
   most of the sensor sits below the EE05 (the ESP32 is the main heat source).
-- The SEN66's cable leaves through the channel under the sensor, straight into the case through one
+- The sensor cable leaves through the channel under the sensor and goes into the case through one
   hole in the back plate.
 - Checked against the original STLs: no overlap with any part, and about 2 mm of clearance from
   the desk when the case leans back on its stand (about 20°).
@@ -34,13 +34,15 @@ None of the original parts need reprinting. You only need one cable hole in the 
      plate, 43 mm down from its top edge), or
    - generate a back plate with the hole already in it:
      `python make_pod.py --backplate "Backplate.stl"`
-2. Feed the SEN66 cable (JST GH end outside) through the hole and plug it into the sensor. Route
-   it through the channel under the sensor.
-3. Put the SEN66 into the pod with its inlet/outlet face against the windows (round fan outlet
-   in the top window) and the connector side against the inner wall.
+2. Feed the bare-wire end of the SEN66 cable through the hole from the outside and plug the
+   connector into the sensor. Route the cable through the channel under the sensor.
+3. Put the SEN66 into the pod with its inlet/outlet face against the windows (round fan outlet in
+   the top window) and the connector side against the inner wall.
 4. Put the pod, with the sensor in it, onto the back plate and fix it with the two right-hand
    screws. They need to be **2 mm longer** than the originals because of the 2 mm tabs.
-5. Optional: a strip of thin foam tape on the sensor face between the inlets and the outlet
+5. Seal the hole around the cable from the inside with a bit of Blu-Tack, so the SEN66 can't draw
+   air from inside the case.
+6. Optional: a strip of thin foam tape on the sensor face between the inlets and the outlet
    improves the seal against the pod wall.
 
 ## Regenerating / tweaking
