@@ -13,7 +13,7 @@ All coordinates are in the original enclosure's assembly frame (mm):
 Usage:
   pip install trimesh manifold3d numpy
   python make_pod.py                              # pod only
-  python make_pod.py --backplate "Backplate.stl"  # pod + back plate with cable hole
+  python make_pod.py --backplate "Backplate.stl"  # pod + back plate with cable hole and M3 clearance holes
   python make_pod.py --assembly                   # also export the pod in assembly position
 """
 
@@ -21,6 +21,7 @@ import argparse
 import os
 
 import numpy as np
+import manifold3d
 import trimesh
 from manifold3d import CrossSection, JoinType, Manifold, Mesh
 
@@ -31,6 +32,8 @@ FRAME_BACK_Z = -48.30      # the frame's rim sits slightly proud of the back pla
 FRAME_RIGHT_X = 55.89      # outer +X face of the frame (the right-hand side seen from the back)
 SCREW_TOP = (37.36, -36.35)
 SCREW_BOTTOM = (37.47, 36.18)
+# All four case screws (M3, into 2.5 mm tap-drill holes in the frame's bosses)
+CASE_SCREWS = [SCREW_TOP, SCREW_BOTTOM, (-45.09, -36.29), (-45.15, 36.13)]
 
 # --- SEN66 package (datasheet: 55.2 x 25.6 x 21.3 mm) ---
 SEN_LENGTH = 55.2          # along Y
@@ -135,6 +138,14 @@ def cable_hole():
     return xy_prism(rounded_rect(x0, x1, y0, y1, 2.0), PLATE_BACK_Z - 1.0, PLATE_FRONT_Z + 1.0)
 
 
+def screw_clearance_holes():
+    """The original back plate has 2.5 mm holes, too tight for the M3 screws to pass through.
+    Opening them to clearance size lets the screws pull the back plate tight against the frame."""
+    holes = [Manifold.cylinder(10, SCREW_CLEARANCE_D / 2, circular_segments=SEGMENTS).translate([x, y, PLATE_BACK_Z - 5])
+             for x, y in CASE_SCREWS]
+    return Manifold.batch_boolean(holes, manifold3d.OpType.Add)
+
+
 def sensor_dummy():
     return box(CAV_X0 + CLEARANCE, CAV_X1 - CLEARANCE, CAV_Y0 + CLEARANCE, CAV_Y1 - CLEARANCE,
                CAV_Z0 + CLEARANCE, CAV_Z1 - CLEARANCE)
@@ -160,7 +171,7 @@ def print_orientation(m):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--backplate", help="original back plate STL; writes a copy with the cable hole")
+    parser.add_argument("--backplate", help="original back plate STL; writes a copy with the cable hole and M3 clearance holes")
     parser.add_argument("--assembly", action="store_true", help="also write the pod in assembly position")
     parser.add_argument("--out", default=os.path.dirname(os.path.abspath(__file__)))
     args = parser.parse_args()
@@ -172,7 +183,7 @@ def main():
     print(f"pod: {pod.volume():.0f} mm^3, bounds {np.round(pod.bounding_box(), 2)}")
 
     if args.backplate:
-        plate = from_trimesh(trimesh.load(args.backplate)) - cable_hole()
+        plate = from_trimesh(trimesh.load(args.backplate)) - cable_hole() - screw_clearance_holes()
         name = os.path.splitext(os.path.basename(args.backplate))[0].strip() + "_sen66_cable_hole.stl"
         to_trimesh(plate).export(os.path.join(args.out, name))
         print(f"wrote {name}")
