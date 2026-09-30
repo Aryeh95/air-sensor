@@ -2,13 +2,13 @@
 Generates a SEN66 side-pod for the XIAO ePaper EE05 + 4.26" (GDEY0426T82) enclosure
 (the "Cattt Casing" / EE05 frame STLs), plus an optional drilled copy of that back plate.
 
-The pod bolts onto the right-hand side of the back plate using the two existing
-right-hand screws, which pass through tabs on the pod. The SEN66 sits on its side
+The pod bolts onto the back plate beside the EE05 pocket (on the right when you look at the back
+of the case) using the two existing screws on that side, which pass through tabs on the pod. The SEN66 sits on its side
 inside the pod with its inlets/outlet facing sideways through two windows; the
 sensor's cable channel lines up with a single hole in the back plate.
 
 All coordinates are in the original enclosure's assembly frame (mm):
-  +X = right (seen from the front), +Y = down, -Z = towards the back.
+  +X = right seen from the back (left seen from the front), +Y = down, -Z = towards the back.
 
 Usage:
   pip install trimesh manifold3d numpy
@@ -28,7 +28,7 @@ from manifold3d import CrossSection, JoinType, Manifold, Mesh
 PLATE_BACK_Z = -48.16      # rear face of the back plate
 PLATE_FRONT_Z = -46.66     # front face of the back plate
 FRAME_BACK_Z = -48.30      # the frame's rim sits slightly proud of the back plate
-FRAME_RIGHT_X = 55.89      # outer right face of the frame
+FRAME_RIGHT_X = 55.89      # outer +X face of the frame (the right-hand side seen from the back)
 SCREW_TOP = (37.36, -36.35)
 SCREW_BOTTOM = (37.47, 36.18)
 
