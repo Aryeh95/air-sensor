@@ -64,7 +64,7 @@ Assemble by connecting the 3V, GND, SDA and SCL pins as shown in the video.
 | [Seeed Studio XIAO ePaper Display Board EE05](https://wiki.seeedstudio.com/epaper_ee05/) | XIAO ESP32-S3 Plus and 24-pin e-paper driver on one board. Replaces the custom PCB **and** the separate XIAO |
 | [Good Display GDEY0426T82](https://buyepaper.com/products/gdey0426t82) | 4.26" 800x480 black/white e-paper (SSD1677), 24-pin FPC. Plugs straight into the EE05 |
 | USB-C cable + 5 V supply | The SEN66's fan runs continuously, so run it from USB rather than a battery |
-| EE05 + 4.26" enclosure (e.g. the "Cattt Casing") + the [SEN66 side-pod](enclosure/ee05_sen66_pod/) | Optional. Screws: 2× M3×8, 2× M3×10 (pod side) and 4× M2×6 for the EE05; details in the pod README |
+| EE05 + 4.26" enclosure (e.g. the "Cattt Casing") + the [SEN66 side-pod](enclosure/ee05_sen66_pod/) | Optional. Hardware: 4× M3 and 4× M2 heat-set inserts (or none), 2× M3×8, 2× M3×10, 4× M2 screws; details in the pod README |
 | *Only if needed:* 2x 10 kΩ resistors and a little heat-shrink | I²C pull-ups, if the sensor doesn't work reliably on the ESP32's internal pull-ups (see step 3 below) |
 
 #### 2. Wiring

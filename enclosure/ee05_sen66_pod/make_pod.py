@@ -14,6 +14,8 @@ Usage:
   pip install trimesh manifold3d numpy
   python make_pod.py                              # pod only
   python make_pod.py --backplate "Backplate.stl"  # pod + back plate with cable hole and M3 clearance holes
+  python make_pod.py --frame "EN05 frame thick.stl" --support "support.stl"
+                                                  # frame / display support with heat-set insert holes
   python make_pod.py --assembly                   # also export the pod in assembly position
 """
 
@@ -34,6 +36,13 @@ SCREW_TOP = (37.36, -36.35)
 SCREW_BOTTOM = (37.47, 36.18)
 # All four case screws (M3, into 2.5 mm tap-drill holes in the frame's bosses)
 CASE_SCREWS = [SCREW_TOP, SCREW_BOTTOM, (-45.09, -36.29), (-45.15, 36.13)]
+
+# --- Heat-set inserts (CNC Kitchen): hole diameter, hole depth (at least insert length + 1 mm) ---
+M3_INSERT = (4.0, 6.7)   # M3 x 5.7, for the frame's four case-screw bosses
+M2_INSERT = (3.2, 4.5)   # M2 x 3 (needs 4.0 deep; a little extra), for the EE05 posts
+FRAME_BOSS_TOP_Z = -46.43    # back face of the frame's screw bosses (8.2 mm deep, 8 mm across)
+SUPPORT_POST_TIP_Z = -49.55  # back face of the display support's EE05 posts (10 mm deep, 7+ mm across)
+EE05_POSTS = [(-6.86, -36.57), (20.22, -36.55), (-6.91, -15.57), (20.22, -15.55)]
 
 # --- SEN66 package (datasheet: 55.2 x 25.6 x 21.3 mm) ---
 SEN_LENGTH = 55.2          # along Y
@@ -146,6 +155,14 @@ def screw_clearance_holes():
     return Manifold.batch_boolean(holes, manifold3d.OpType.Add)
 
 
+def insert_holes(points, top_z, insert):
+    """Heat-set insert holes going forward (+Z) from a back face at top_z."""
+    dia, depth = insert
+    holes = [Manifold.cylinder(depth + 1, dia / 2, circular_segments=SEGMENTS).translate([x, y, top_z - 1])
+             for x, y in points]
+    return Manifold.batch_boolean(holes, manifold3d.OpType.Add)
+
+
 def sensor_dummy():
     return box(CAV_X0 + CLEARANCE, CAV_X1 - CLEARANCE, CAV_Y0 + CLEARANCE, CAV_Y1 - CLEARANCE,
                CAV_Z0 + CLEARANCE, CAV_Z1 - CLEARANCE)
@@ -172,6 +189,8 @@ def print_orientation(m):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--backplate", help="original back plate STL; writes a copy with the cable hole and M3 clearance holes")
+    parser.add_argument("--frame", help="original frame STL; writes a copy with M3 heat-set insert holes")
+    parser.add_argument("--support", help="original display support STL; writes a copy with M2 heat-set insert holes")
     parser.add_argument("--assembly", action="store_true", help="also write the pod in assembly position")
     parser.add_argument("--out", default=os.path.dirname(os.path.abspath(__file__)))
     args = parser.parse_args()
@@ -187,6 +206,15 @@ def main():
         name = os.path.splitext(os.path.basename(args.backplate))[0].strip() + "_sen66_cable_hole.stl"
         to_trimesh(plate).export(os.path.join(args.out, name))
         print(f"wrote {name}")
+
+    for path, points, top_z, insert, suffix in (
+            (args.frame, CASE_SCREWS, FRAME_BOSS_TOP_Z, M3_INSERT, "_m3_inserts"),
+            (args.support, EE05_POSTS, SUPPORT_POST_TIP_Z, M2_INSERT, "_m2_inserts")):
+        if path:
+            part = from_trimesh(trimesh.load(path)) - insert_holes(points, top_z, insert)
+            name = os.path.splitext(os.path.basename(path))[0].strip() + suffix + ".stl"
+            to_trimesh(part).export(os.path.join(args.out, name))
+            print(f"wrote {name}")
 
 
 if __name__ == "__main__":

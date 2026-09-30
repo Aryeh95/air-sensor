@@ -5,7 +5,7 @@ enclosure (the "Cattt Casing": EN05 frame, support, back plate, back cap, stand,
 None of the original parts need reprinting. You only need one cable hole in the back plate.
 
 - **`sen66_pod.stl`**: ready to print, already in print orientation.
-- **`make_pod.py`**: generates the pod (and optionally a copy of the back plate with the cable hole).
+- **`make_pod.py`**: generates the pod, and optionally modified copies of the original back plate (cable hole, M3 clearance holes), frame (M3 insert holes) and display support (M2 insert holes).
 
 ![The case with the pod attached: back, side and front](render.png)
 
@@ -25,25 +25,42 @@ None of the original parts need reprinting. You only need one cable hole in the 
 
 ## Hardware
 
-The original design doesn't list any. These sizes come from measuring its STLs and the EE05's PCB file:
+The original design doesn't list any. These sizes come from measuring its STLs and the EE05's PCB file.
+There are two ways to build it.
+
+**With heat-set inserts (recommended; the threads survive repeated opening).** Print the frame and
+display support that `make_pod.py --frame ... --support ...` generates. They have holes sized to
+CNC Kitchen's guidelines.
+
+| Qty | Part | Goes |
+| --- | --- | --- |
+| 4 | **M3 × 5.7 heat-set insert** (hole 4.0 × 6.7 mm) | Into the frame's four screw bosses, from the back |
+| 4 | **M2 × 3 heat-set insert** (hole 3.2 × 4.5 mm) | Into the display support's four EE05 posts |
+| 2 | **M3 × 8 mm** machine screw, pan or button head | Back plate to frame: the two screws on the left, seen from the back |
+| 2 | **M3 × 10 mm** machine screw, pan or button head | Through the pod's tabs and the back plate into the frame |
+| 4 | **M2 × 5 mm** machine screw (M2 × 4 to M2 × 6 all fit) | EE05 board onto its posts |
+
+- Press each insert in straight with a soldering iron at your usual insert temperature for the
+  filament, until it's flush with, or just below, the top of the boss.
+- The walls around the inserts are 1.9 mm for M3 and 1.5 mm for M2, above CNC Kitchen's minimums
+  of 1.6 mm and 1.3 mm.
+- The original hole continues below each insert hole, so the screw tips have room.
+
+**Without inserts, using the original frame and support.** The screws cut their own thread in the
+plastic. Screws made for plastic ("PT" or thread-forming) are best:
 
 | Qty | Screw | Goes |
 | --- | --- | --- |
-| 2 | **M3 × 8 mm**, pan or button head | Back plate to frame: the two screws on the left, seen from the back |
-| 2 | **M3 × 10 mm**, pan or button head | Through the pod's tabs and the back plate into the frame (the pod side) |
-| 4 | **M2 × 6 mm** (M2 × 8 also fits) | EE05 board onto the four posts on the display support |
+| 2 | **M3 × 8 mm** | Back plate to frame: the two on the left, seen from the back |
+| 2 | **M3 × 10 mm** | Through the pod's tabs (up to M3 × 12 fits) |
+| 4 | **M2 × 6 mm** | EE05 board onto the display support (2.0 mm pilot holes, 10 mm deep) |
 
-- The frame's four bosses have 2.5 mm holes, 8 mm deep: the standard drill size for tapping an M3
-  thread. The screws cut their own thread in the plastic. Screws made for plastic ("PT" or
-  thread-forming) are ideal, but ordinary M3 machine screws work in PLA or PETG too. Stop once
-  they're snug.
-- The EE05's mounting holes are 2.5 mm (M2 clearance) and the display support's posts have 2.0 mm
-  pilot holes, 10 mm deep.
+**Either way:**
+- The frame's bosses are 8 mm across with 2.5 mm holes, 8.2 mm deep: the standard tap-drill size for
+  M3. The EE05's mounting holes are 2.5 mm (M2 clearance), 27 × 21 mm apart.
 - The original back plate's holes are also 2.5 mm, too tight for M3 to pass through. The back
   plate generated here has them opened to 3.2 mm. If you print the original instead, drill its four
   holes out to 3.2 mm (a 1/8" bit is fine).
-- Maximum lengths before a screw bottoms out: M3 × 10 for the plain back-plate screws, M3 × 12 for
-  the pod screws.
 - The back cap, stand and switch cap have no screw holes.
 
 ## Printing
@@ -76,7 +93,7 @@ The original design doesn't list any. These sizes come from measuring its STLs a
 
 ```
 pip install trimesh manifold3d numpy
-python make_pod.py [--backplate Backplate.stl] [--assembly]
+python make_pod.py [--backplate Backplate.stl] [--frame "EN05 frame thick.stl"] [--support support.stl] [--assembly]
 ```
 
 All dimensions (wall thickness, clearance, tab size, screw hole size, pod position) are
