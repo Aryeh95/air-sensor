@@ -45,6 +45,7 @@ struct PurpleAirResult {
   float pm25 = NAN;  // EPA-corrected PM2.5, ug/m3
   float raw_cf1 = NAN;
   float humidity = NAN;
+  bool humidity_assumed = false;  // the sensor didn't report humidity, so 50% was used
   std::string name;
   std::string error;
 };
@@ -88,13 +89,37 @@ inline PurpleAirResult parse_purpleair(const std::string &body) {
     r.raw_cf1 = s["pm2.5_cf_1"] | NAN;  // single-channel sensor
   }
   r.humidity = s["humidity"] | NAN;
+  if (std::isnan(r.humidity)) {
+    // Some sensors don't report humidity. The correction's humidity term is small
+    // (about 0.9 ug/m3 per 10% RH), so a typical value is better than no reading.
+    r.humidity = 50;
+    r.humidity_assumed = true;
+  }
   r.pm25 = epa_correct_purpleair(r.raw_cf1, r.humidity);
   if (std::isnan(r.pm25)) {
-    r.error = "Missing PM2.5 or humidity in the response";
+    r.error = "No PM2.5 in the response";
     return r;
   }
   r.ok = true;
   return r;
+}
+
+// Handles one PurpleAir response: logs it and, if the reading is usable, makes it the
+// outdoor reading. Returns false if the caller should try the backup sensor.
+inline bool handle_purpleair_response(int status, const std::string &body, const char *which) {
+  if (status != 200) {
+    ESP_LOGW("purpleair", "%s: HTTP %d (check the API key and sensor number)", which, status);
+    return false;
+  }
+  PurpleAirResult r = parse_purpleair(body);
+  if (!r.ok) {
+    ESP_LOGW("purpleair", "%s: not using it: %s", which, r.error.c_str());
+    return false;
+  }
+  ESP_LOGI("purpleair", "%s (%s): raw %.1f, humidity %.0f%%%s, EPA-corrected PM2.5 %.1f ug/m3", which, r.name.c_str(),
+           r.raw_cf1, r.humidity, r.humidity_assumed ? " (not reported, assumed)" : "", r.pm25);
+  set_outdoor(OutdoorSource::PURPLEAIR, us_aqi_from_pm25(r.pm25), r.pm25);
+  return true;
 }
 
 // ---------------------------------------------------------------------------

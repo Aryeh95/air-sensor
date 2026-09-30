@@ -3,7 +3,7 @@
 #   - Good Display GDEY0426T82 / Seeed 4.26" 800x480 black/white e-paper (SSD1677)
 #   - Sensirion SEN66
 # Works standalone: time comes from the internet (SNTP) and outdoor air quality from a nearby
-# PurpleAir sensor, with AirNow as the fallback. Home Assistant is optional.
+# PurpleAir sensor (with an optional backup sensor), then AirNow as the fallback. Home Assistant is optional.
 # Put your passwords, API keys, PurpleAir sensor number and ZIP code in secrets.yaml.
 substitutions:
   # Show temperature in Fahrenheit on the display (Home Assistant always gets Celsius)
@@ -18,6 +18,8 @@ substitutions:
   # its map link. Set purpleair_sensor_index to "0" to turn PurpleAir off.
   purpleair_api_key: !secret purpleair_api_key
   purpleair_sensor_index: !secret purpleair_sensor_index
+  # Optional second sensor, only asked when the first has no usable reading ("0" = none)
+  purpleair_backup_sensor_index: !secret purpleair_backup_sensor_index
   # Fallback: AirNow (US). Free key from https://docs.airnowapi.org/
   airnow_api_key: !secret airnow_api_key
   airnow_zip: !secret airnow_zip
@@ -299,7 +301,8 @@ script:
 
           if (f.redraw) id(internal_display).update();
 
-  # Current PM2.5 from a nearby outdoor PurpleAir sensor, EPA-corrected
+  # Current PM2.5 from a nearby outdoor PurpleAir sensor, EPA-corrected.
+  # If it has no usable reading, the backup sensor is tried (so it costs no points normally).
   - id: fetch_purpleair
     mode: single
     then:
@@ -318,25 +321,42 @@ script:
                 on_response:
                   then:
                     - lambda: |-
-                        if (response->status_code != 200) {
-                          ESP_LOGW("purpleair", "PurpleAir returned HTTP %d (check the API key and sensor number)", response->status_code);
-                          return;
-                        }
-                        PurpleAirResult r = parse_purpleair(body);
-                        if (!r.ok) {
-                          ESP_LOGW("purpleair", "Not using PurpleAir: %s", r.error.c_str());
-                          return;
-                        }
-                        ESP_LOGI("purpleair", "%s: raw %.1f, humidity %.0f%%, EPA-corrected PM2.5 %.1f ug/m3",
-                                 r.name.c_str(), r.raw_cf1, r.humidity, r.pm25);
-                        set_outdoor(OutdoorSource::PURPLEAIR, us_aqi_from_pm25(r.pm25), r.pm25);
+                        if (!handle_purpleair_response(response->status_code, body, "Main sensor"))
+                          id(fetch_purpleair_backup).execute();
                     - script.execute: publish_outdoor
                 on_error:
                   then:
                     - logger.log:
                         level: WARN
                         tag: purpleair
-                        format: "PurpleAir request failed"
+                        format: "Main sensor: request failed"
+                    - script.execute: fetch_purpleair_backup
+
+  - id: fetch_purpleair_backup
+    mode: single
+    then:
+      - if:
+          condition:
+            and:
+              - wifi.connected:
+              - lambda: 'return std::string("${purpleair_backup_sensor_index}") != "0";'
+          then:
+            - http_request.get:
+                url: "https://api.purpleair.com/v1/sensors/${purpleair_backup_sensor_index}?fields=name,location_type,last_seen,humidity,pm2.5_cf_1,pm2.5_cf_1_a,pm2.5_cf_1_b"
+                request_headers:
+                  X-API-Key: "${purpleair_api_key}"
+                capture_response: true
+                max_response_buffer_size: 2kB
+                on_response:
+                  then:
+                    - lambda: handle_purpleair_response(response->status_code, body, "Backup sensor");
+                    - script.execute: publish_outdoor
+                on_error:
+                  then:
+                    - logger.log:
+                        level: WARN
+                        tag: purpleair
+                        format: "Backup sensor: request failed"
 
   # Current outdoor air quality for your ZIP code from AirNow (fallback)
   - id: fetch_airnow
