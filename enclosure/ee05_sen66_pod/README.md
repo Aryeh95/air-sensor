@@ -47,6 +47,10 @@ CNC Kitchen's guidelines.
 - The walls around the inserts are 1.9 mm for M3 and 1.5 mm for M2, above CNC Kitchen's minimums
   of 1.6 mm and 1.3 mm.
 - The original hole continues below each insert hole, so the screw tips have room.
+- **If your holes print undersize** (common with FDM), measure one and regenerate with the
+  difference, e.g. `--hole-comp 0.5` when a 4.0 mm hole measures 3.5 mm. It enlarges every screw
+  and insert hole (frame, support, back plate and pod tabs). With 0.5 the walls are still 1.6 mm
+  (M3) and 1.4 mm (M2). Alternatively, use your slicer's hole compensation setting (not both).
 
 **Without inserts, using the original frame and support (as the designer intended).** M2.5 screws
 cut their own thread in the 2.5 mm printed bosses; printed holes come out slightly undersize.
@@ -105,7 +109,7 @@ lengths above give 4 mm of thread.
 
 ```
 pip install trimesh manifold3d numpy
-python make_pod.py [--backplate Backplate.stl] [--frame "EN05 frame thick.stl"] [--support support.stl] [--assembly]
+python make_pod.py [--backplate Backplate.stl] [--frame "EN05 frame thick.stl"] [--support support.stl] [--hole-comp 0.5] [--assembly]
 ```
 
 All dimensions (wall thickness, clearance, tab size, screw hole size, pod position) are

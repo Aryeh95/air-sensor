@@ -55,6 +55,9 @@ CLEARANCE = 0.3
 TAB_THICKNESS = 2.0
 TAB_RADIUS = 3.5
 SCREW_CLEARANCE_D = 3.2    # clears M2 / M2.5 / M3
+# Added to the diameter of every screw and insert hole. Printers often make small holes undersize:
+# print a part, measure a hole and set this to (designed - measured), e.g. 4.0 - 3.5 = 0.5.
+HOLE_COMPENSATION = 0.0
 CAVITY_TOP_Y = -30.0       # keeps clear of the top screw head
 CORNER_RADIUS = 2.0
 SEGMENTS = 64
@@ -128,7 +131,7 @@ def build_pod():
         pad = CrossSection.circle(TAB_RADIUS, SEGMENTS).translate([sx, sy])
         root = CrossSection.square([2 * TAB_RADIUS, 0.01]).translate([tab_x - TAB_RADIUS, pod_edge])
         tab = xy_prism(CrossSection.batch_hull([pad, root]), CAV_Z1 - TAB_THICKNESS, CAV_Z1)
-        hole = Manifold.cylinder(20, SCREW_CLEARANCE_D / 2, circular_segments=SEGMENTS).translate(
+        hole = Manifold.cylinder(20, (SCREW_CLEARANCE_D + HOLE_COMPENSATION) / 2, circular_segments=SEGMENTS).translate(
             [sx, sy, CAV_Z1 - 10])
         pod = (pod + tab) - hole
 
@@ -150,7 +153,7 @@ def cable_hole():
 def screw_clearance_holes():
     """The original back plate has 2.5 mm holes, too tight for the M3 screws to pass through.
     Opening them to clearance size lets the screws pull the back plate tight against the frame."""
-    holes = [Manifold.cylinder(10, SCREW_CLEARANCE_D / 2, circular_segments=SEGMENTS).translate([x, y, PLATE_BACK_Z - 5])
+    holes = [Manifold.cylinder(10, (SCREW_CLEARANCE_D + HOLE_COMPENSATION) / 2, circular_segments=SEGMENTS).translate([x, y, PLATE_BACK_Z - 5])
              for x, y in CASE_SCREWS]
     return Manifold.batch_boolean(holes, manifold3d.OpType.Add)
 
@@ -158,6 +161,7 @@ def screw_clearance_holes():
 def insert_holes(points, top_z, insert):
     """Heat-set insert holes going forward (+Z) from a back face at top_z."""
     dia, depth = insert
+    dia += HOLE_COMPENSATION
     holes = [Manifold.cylinder(depth + 1, dia / 2, circular_segments=SEGMENTS).translate([x, y, top_z - 1])
              for x, y in points]
     return Manifold.batch_boolean(holes, manifold3d.OpType.Add)
@@ -187,13 +191,17 @@ def print_orientation(m):
 
 
 def main():
+    global HOLE_COMPENSATION
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--backplate", help="original back plate STL; writes a copy with the cable hole and M3 clearance holes")
     parser.add_argument("--frame", help="original frame STL; writes a copy with M3 heat-set insert holes")
     parser.add_argument("--support", help="original display support STL; writes a copy with M2 heat-set insert holes")
+    parser.add_argument("--hole-comp", type=float, default=HOLE_COMPENSATION,
+                        help="mm added to every screw/insert hole diameter (designed minus measured)")
     parser.add_argument("--assembly", action="store_true", help="also write the pod in assembly position")
     parser.add_argument("--out", default=os.path.dirname(os.path.abspath(__file__)))
     args = parser.parse_args()
+    HOLE_COMPENSATION = args.hole_comp
 
     pod = build_pod()
     print_orientation(pod).export(os.path.join(args.out, "sen66_pod.stl"))
