@@ -29,6 +29,9 @@ constexpr float NOX_ACT = 20;          // Sensirion NOx index (1 = normal). No o
 constexpr float HUMIDITY_LOW = 30;     // %
 constexpr float HUMIDITY_HIGH = 60;    // %
 constexpr float OUTDOOR_PM25_OK = 15;  // ug/m3: WHO 2021 24-hour guideline. At or below this, airing out is fine
+// Formaldehyde (optional SFA40), in ppb. At 25 °C, 1 ppb = 1.23 ug/m3.
+constexpr float HCHO_ACT = 80;         // ppb: WHO guideline of 0.1 mg/m3 (about 81 ppb). Ventilate
+constexpr float HCHO_WATCH = 40;       // ppb: Health Canada long-term limit of 50 ug/m3 (about 41 ppb)
 }  // namespace aqi_limits
 
 // ---------------------------------------------------------------------------
@@ -144,8 +147,9 @@ inline float compensate_humidity(float rh, float t_raw, float t_offset) {
 // ---------------------------------------------------------------------------
 class AQIAlgo {
  public:
-  // outdoor_pm25 is optional (NAN if unknown), e.g. from AirNow
-  static AQIAdvice get_advice(float co2, float pm25, float voc_index, float humidity, float outdoor_pm25 = NAN) {
+  // outdoor_pm25 (e.g. from PurpleAir) and hcho_ppb (from an SFA40) are optional: NAN if unknown
+  static AQIAdvice get_advice(float co2, float pm25, float voc_index, float humidity, float outdoor_pm25 = NAN,
+                              float hcho_ppb = NAN) {
     using namespace aqi_limits;
     AQIAdvice advice;
 
@@ -163,9 +167,9 @@ class AQIAlgo {
     // =========================================================
     if (co2 > CO2_URGENT || pm25 > PM25_URGENT) {
       advice.status = "Poor";
-    } else if (co2 > CO2_ACT || pm25 > PM25_ACT) {
+    } else if (co2 > CO2_ACT || pm25 > PM25_ACT || hcho_ppb > HCHO_ACT) {
       advice.status = "Fair";
-    } else if (co2 > 800 || pm25 > 15) {
+    } else if (co2 > 800 || pm25 > 15 || hcho_ppb > HCHO_WATCH) {
       advice.status = "Moderate";
     } else if (co2 > 600 || pm25 > 5) {
       advice.status = "Good";
@@ -180,6 +184,8 @@ class AQIAlgo {
       set(advice, "Urgent Vent", reason("CO2", co2, " ppm"), AdviceIcon::VENTILATE);
     } else if (pm25 > PM25_URGENT) {
       set(advice, "Run Purifier", reason("PM2.5", pm25, " µg/m³"), AdviceIcon::PURIFIER);
+    } else if (hcho_ppb > HCHO_ACT) {
+      set(advice, "Ventilate", reason("HCHO", hcho_ppb, " ppb"), AdviceIcon::VENTILATE);
     } else if (voc_index >= VOC_ACT) {
       set(advice, "Ventilate", reason("VOC Index", voc_index, ""), AdviceIcon::VENTILATE);
     } else if (pm25 > PM25_ACT && co2 > CO2_ACT) {
@@ -192,11 +198,13 @@ class AQIAlgo {
       set(advice, "Too Dry", reason("Humidity", humidity, "%"), AdviceIcon::TOO_DRY);
     } else if (humidity > HUMIDITY_HIGH) {
       set(advice, "Too Humid", reason("Humidity", humidity, "%"), AdviceIcon::TOO_HUMID);
-    } else if (co2 > 800 || pm25 > 15) {
+    } else if (co2 > 800 || pm25 > 15 || hcho_ppb > HCHO_WATCH) {
       if (co2 > 800) {
         set(advice, "Cons. Vent", reason("CO2", co2, " ppm"), AdviceIcon::VENTILATE);
-      } else {
+      } else if (pm25 > 15) {
         set(advice, "Cons. Vent", reason("PM2.5", pm25, " µg/m³"), AdviceIcon::VENTILATE);
+      } else {
+        set(advice, "Cons. Vent", reason("HCHO", hcho_ppb, " ppb"), AdviceIcon::VENTILATE);
       }
     } else {
       set(advice, "No Actions", "Optimal Air", AdviceIcon::OK);
@@ -205,11 +213,12 @@ class AQIAlgo {
     // =========================================================
     // SMART OUTDOOR OVERRIDE
     // Only hold back ventilation when the outside air is actually polluted, not merely a
-    // little worse than inside. Stale CO2 is still worth a short airing.
+    // little worse than inside. Stale CO2 or high formaldehyde is still worth a short airing
+    // (a purifier's particle filter doesn't remove formaldehyde).
     // =========================================================
     bool outdoor_bad = !std::isnan(outdoor_pm25) && outdoor_pm25 > OUTDOOR_PM25_OK && outdoor_pm25 > pm25;
     if (outdoor_bad && advice.icon == AdviceIcon::VENTILATE) {
-      if (advice.action == "Urgent Vent") {
+      if (advice.action == "Urgent Vent" || hcho_ppb > HCHO_ACT) {
         set(advice, "Vent Briefly", "Outside PM2.5 High", AdviceIcon::VENTILATE);
       } else if (pm25 > 15) {
         set(advice, "Run Purifier", "Worse Outside", AdviceIcon::PURIFIER);

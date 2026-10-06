@@ -16,6 +16,9 @@
 // |  US AQI 23    |   (tiles past a limit are inverted)| +--------------------------------------+
 // +---------------+----------------------------------+
 //
+// With an SFA40 formaldehyde sensor fitted, the bottom two rows become
+// PM1 | PM2.5 | PM10  and  VOC | NOx | HCHO  (PM4 stays available in Home Assistant).
+//
 // The fonts used below (montserrat_20/24/36/48) are the ids from the YAML; ESPHome declares
 // them in main.cpp before this header is included.
 
@@ -208,6 +211,7 @@ struct DisplayModel {
 
 struct Readings {
   float temperature, humidity, pm1, pm25, pm4, pm10, co2, voc, nox;
+  float hcho = NAN;  // ppb, from the optional SFA40
 };
 
 enum class SensorState { WAITING, OK, OFFLINE, MISSING };
@@ -221,6 +225,7 @@ struct UiState {
   static constexpr uint32_t PURPLEAIR_STALE_MS = 45UL * 60UL * 1000UL;  // PurpleAir older than 45 min: use AirNow
   static constexpr uint32_t AIRNOW_STALE_MS = 3UL * 3600UL * 1000UL;     // AirNow older than 3 h is ignored
   static constexpr uint32_t TREND_PAGE_MS = 2UL * 60UL * 1000UL;     // trend page returns to main after 2 min
+  static constexpr uint32_t HCHO_STALE_MS = 3UL * 60UL * 1000UL;     // SFA40 reading older than 3 min is ignored
 
   DisplayModel model;
   std::string signature;
@@ -231,6 +236,8 @@ struct UiState {
   ReadingHistory history;
   bool seen_reading = false;
   uint32_t last_reading_ms = 0;
+  float hcho = NAN;
+  uint32_t hcho_ms = 0;
   struct Outdoor {
     bool seen = false;
     uint32_t ms = 0;
@@ -247,6 +254,12 @@ inline void record_reading(float co2, float pm25) {
   ui.seen_reading = true;
   ui.last_reading_ms = millis();
   ui.history.add(ui.last_reading_ms, co2, pm25);
+}
+
+// Every SFA40 formaldehyde reading (ppb). It publishes nothing for the first ~10 minutes while it warms up.
+inline void record_hcho(float ppb) {
+  ui.hcho = ppb;
+  ui.hcho_ms = millis();
 }
 
 // A successful outdoor update from PurpleAir or AirNow
@@ -311,14 +324,18 @@ struct Frame {
 // Works out the advice and what should be on screen. frame.redraw says whether it changed.
 // The outdoor AQI in the header is PM2.5-based from PurpleAir, or AirNow's overall AQI (which
 // also counts ozone) when PurpleAir isn't available.
-inline Frame update_state(Readings r, esphome::ESPTime time, bool wifi_ok, bool fahrenheit) {
+// hcho_fitted: an SFA40 was found at boot, so the screen shows a formaldehyde tile.
+inline Frame update_state(Readings r, esphome::ESPTime time, bool wifi_ok, bool fahrenheit, bool hcho_fitted = false) {
   using namespace aqi_limits;
   const uint32_t now = millis();
   Frame f;
 
+  // The SFA40 is independent of the SEN66: use its latest reading if it's recent
+  const float hcho = hcho_fitted && !std::isnan(ui.hcho) && now - ui.hcho_ms < UiState::HCHO_STALE_MS ? ui.hcho : NAN;
   SensorState state = sensor_state(now);
   if (state != SensorState::OK)
     r = {NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN};  // never show stale readings
+  r.hcho = hcho;
 
   switch (state) {
     case SensorState::OFFLINE:
@@ -328,7 +345,7 @@ inline Frame update_state(Readings r, esphome::ESPTime time, bool wifi_ok, bool 
       f.advice = {"No Sensor", "Check Wiring", "SEN66 not found", AdviceIcon::SENSOR_FAULT};
       break;
     default:
-      f.advice = AQIAlgo::get_advice(r.co2, r.pm25, r.voc, r.humidity, active_outdoor(now).pm25);
+      f.advice = AQIAlgo::get_advice(r.co2, r.pm25, r.voc, r.humidity, active_outdoor(now).pm25, r.hcho);
       break;
   }
   f.indoor_aqi = us_aqi_from_pm25(r.pm25);
@@ -383,10 +400,22 @@ inline Frame update_state(Readings r, esphome::ESPTime time, bool wifi_ok, bool 
   m.tiles[3] = tile("PM1", "µg/m³", format_sensor("%.1f", r.pm1), false);
   m.tiles[4] = tile("PM2.5", "µg/m³", format_sensor("%.1f", r.pm25), r.pm25 > PM25_ACT,
                     ok ? ui.history.trend(false) : Trend::FLAT);
-  m.tiles[5] = tile("PM4", "µg/m³", format_sensor("%.1f", r.pm4), false);
-  m.tiles[6] = tile("PM10", "µg/m³", format_sensor("%.1f", r.pm10), r.pm10 > PM10_ACT);
-  m.tiles[7] = tile("VOC", "index", format_sensor("%.0f", r.voc), r.voc >= VOC_ACT);
-  m.tiles[8] = tile("NOx", "index", format_sensor("%.0f", r.nox), r.nox >= NOX_ACT);
+  Tile pm4 = tile("PM4", "µg/m³", format_sensor("%.1f", r.pm4), false);
+  Tile pm10 = tile("PM10", "µg/m³", format_sensor("%.1f", r.pm10), r.pm10 > PM10_ACT);
+  Tile voc = tile("VOC", "index", format_sensor("%.0f", r.voc), r.voc >= VOC_ACT);
+  Tile nox = tile("NOx", "index", format_sensor("%.0f", r.nox), r.nox >= NOX_ACT);
+  if (hcho_fitted) {
+    // Particles on the middle row, gases on the bottom row
+    m.tiles[5] = pm10;
+    m.tiles[6] = voc;
+    m.tiles[7] = nox;
+    m.tiles[8] = tile("HCHO", "ppb", format_sensor("%.0f", r.hcho), r.hcho > HCHO_ACT);
+  } else {
+    m.tiles[5] = pm4;
+    m.tiles[6] = pm10;
+    m.tiles[7] = voc;
+    m.tiles[8] = nox;
+  }
   m.history_version = ui.history.version();
 
   std::string sig = m.signature();

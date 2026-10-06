@@ -3,10 +3,12 @@
 #   esphome run eg_host.yaml
 # Preview the trend page, Fahrenheit or the Wi-Fi-off icon with e.g.:
 #   esphome -s preview_page 1 -s use_fahrenheit true -s preview_wifi false run eg_host.yaml
+# preview_hcho is the SFA40 formaldehyde reading in ppb; "-1" previews the screen without an SFA40.
 substitutions:
   preview_page: "0"
   preview_wifi: "true"
   use_fahrenheit: "false"
+  preview_hcho: "-1"
 
 esphome:
   name: sdl
@@ -53,30 +55,51 @@ font:
     glyphs: "!/%()+&=,-_.:·°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ abcdefghijklmnopqrstuvwxyzåäö"
 
 image:
-  defaults:
+  - platform: file
+    file: "open_window.png"
+    id: img_window_open
     type: binary
     resize: 140x140
-  images:
-    - file: "open_window.png"
-      id: img_window_open
-    - file: "purifier.png"
-      id: img_purifier
-      resize: 130x130
-    - file: "ok.png"
-      id: img_ok
-    - file: "mdi:window-closed-variant"
-      id: img_keep_closed
-    - file: "mdi:water-off-outline"
-      id: img_too_dry
-    - file: "mdi:water-alert-outline"
-      id: img_too_humid
-    - file: "mdi:timer-sand"
-      id: img_waiting
-    - file: "mdi:alert-circle-outline"
-      id: img_fault
-    - file: "mdi:wifi-off"
-      id: img_wifi_off
-      resize: 28x28
+  - platform: file
+    file: "purifier.png"
+    id: img_purifier
+    type: binary
+    resize: 130x130
+  - platform: file
+    file: "ok.png"
+    id: img_ok
+    type: binary
+    resize: 140x140
+  - platform: file
+    file: "mdi:window-closed-variant"
+    id: img_keep_closed
+    type: binary
+    resize: 140x140
+  - platform: file
+    file: "mdi:water-off-outline"
+    id: img_too_dry
+    type: binary
+    resize: 140x140
+  - platform: file
+    file: "mdi:water-alert-outline"
+    id: img_too_humid
+    type: binary
+    resize: 140x140
+  - platform: file
+    file: "mdi:timer-sand"
+    id: img_waiting
+    type: binary
+    resize: 140x140
+  - platform: file
+    file: "mdi:alert-circle-outline"
+    id: img_fault
+    type: binary
+    resize: 140x140
+  - platform: file
+    file: "mdi:wifi-off"
+    id: img_wifi_off
+    type: binary
+    resize: 28x28
 
 time:
   - platform: host
@@ -93,7 +116,9 @@ display:
       ui.page_since = millis();
       //                temp  hum  pm1  pm2.5  pm4  pm10  co2   voc  nox
       Readings r{22.3f, 27, 5, 8, 12, 14, 1214, 42, 1};
-      update_state(r, id(sys_time).now(), ${preview_wifi}, ${use_fahrenheit});
+      const float hcho = ${preview_hcho};
+      if (hcho >= 0) record_hcho(hcho);
+      update_state(r, id(sys_time).now(), ${preview_wifi}, ${use_fahrenheit}, hcho >= 0);
       draw_screen(it, Icons{id(img_ok), id(img_window_open), id(img_purifier), id(img_keep_closed),
                             id(img_too_dry), id(img_too_humid), id(img_waiting), id(img_fault),
                             id(img_wifi_off)});

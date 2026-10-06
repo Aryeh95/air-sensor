@@ -5,7 +5,7 @@ This repository contains the ESPHome software configurations and 3D printed part
 
 [![Watch the video](https://img.youtube.com/vi/DqiMmY5ppnE/0.jpg)](https://www.youtube.com/watch?v=DqiMmY5ppnE)
 
-The device uses an ESP32 and the Sensirion SEN66 to track 9 different air quality metrics (PM1, PM2.5, PM4, PM10, VOCs, NOx, CO2, Temperature, and Humidity) and displays them on an e-ink screen. It connects natively to [Home Assistant](https://www.home-assistant.io/) and the firmware is written using [ESPHome](https://esphome.io/).
+The device uses an ESP32 and the Sensirion SEN66 to track 9 different air quality metrics (PM1, PM2.5, PM4, PM10, VOCs, NOx, CO2, Temperature, and Humidity), plus formaldehyde with an optional Sensirion SFA40, and displays them on an e-ink screen. It connects natively to [Home Assistant](https://www.home-assistant.io/) and the firmware is written using [ESPHome](https://esphome.io/).
 
 The original (2.13" + custom PCB) 3D files can be found on [Printables](https://www.printables.com/model/1751003-smart-desktop-air-quality-monitor-esp32-sen66), on [Makerworld](https://makerworld.com/en/models/2918992-smart-desktop-air-quality-monitor-esp32-sen66), or in the releases tab.
   
@@ -66,6 +66,7 @@ Assemble by connecting the 3V, GND, SDA and SCL pins as shown in the video.
 | USB-C cable + 5 V supply | The SEN66's fan runs continuously, so run it from USB rather than a battery |
 | EE05 + 4.26" enclosure (e.g. the "Cattt Casing") + the [SEN66 side-pod](enclosure/ee05_sen66_pod/) | Optional. Hardware: with heat-set inserts, 4× M3 + 4× M2 inserts and M3/M2 screws; without, the designer's M2.5 button-head screws. Details in the pod README |
 | *Only if needed:* 2x 10 kΩ resistors and a little heat-shrink | I²C pull-ups, if the sensor doesn't work reliably on the ESP32's internal pull-ups (see step 3 below) |
+| *Optional:* [Sensirion SFA40](https://sensirion.com/products/catalog/SFA40) formaldehyde sensor on a small breakout (about 17.5 × 15 mm; get the version without header pins), plus 26–28 AWG stranded wire | Adds formaldehyde (HCHO). Shares the SEN66's I²C wires. See "Optional: formaldehyde" below |
 
 #### 2. Wiring
 
@@ -92,14 +93,16 @@ Sensirion's datasheet asks for 10 kΩ pull-up resistors on SDA and SCL. This bui
 
 Flash the firmware and watch the logs for a few minutes. If you see `Found i2c device at address 0x6B` and readings arrive every 30 s with no I²C or `sen6x` errors, you're done. If the sensor isn't found, or readings drop out, add two 10 kΩ pull-up resistors, spliced into the cable: one from wire 3 (SDA) to wire 1 (VDD), one from wire 4 (SCL) to wire 1. Slide heat-shrink on first, then cut each wire, twist the ends together with the resistor leg, solder, and shrink.
 
+**Optional: formaldehyde (SFA40).** Solder its four pads to the same EE05 pads as the SEN66: Vcc to **3V3**, Gnd to **GND**, SDA to **D4**, SCL to **D5** (go by the labels on your board; the order varies). The two sensors have different I²C addresses (SEN66 0x6B, SFA40 0x5D), so they share the wires without conflict. Most SFA40 breakouts have 10 kΩ pull-ups on board, which then serve the SEN66 too: with the power off, about 10 kΩ between SDA and Vcc means they're there. Keep flux and solvents away from the sensor's membrane (the patch on its metal can). The firmware finds it automatically; look for `0x5D` next to `0x6B` in the boot log. Its first reading arrives about 10 minutes after power-on.
+
 #### 4. Enclosure
 
 Any EE05 + 4.26" enclosure works as long as the SEN66's inlets and outlet can reach room air. For the "Cattt Casing" (EE05 frame / back plate / back cap / stand), print the [SEN66 side-pod](enclosure/ee05_sen66_pod/) and make one cable hole in the back plate. Details are in that folder's README.
 
 #### 5. Firmware
-The config is `firmware/The Everything Bagel/air_sensor_epaper_ee05.yaml`. Compile it yourself with ESPHome Builder or the ESPHome CLI (Method B above), after copying `aqi_algo.h`, `display_renderer.h`, `device_extras.h` and the three `.png` icons next to it. It needs a recent ESPHome (it uses the `epaper_spi` display platform; tested with 2026.6).
+The config is `firmware/The Everything Bagel/air_sensor_epaper_ee05.yaml`. Compile it yourself with ESPHome Builder or the ESPHome CLI (Method B above), after copying `aqi_algo.h`, `display_renderer.h`, `device_extras.h` and the three `.png` icons next to it. It needs ESPHome 2026.9 or newer (for the `sfa40` component; tested with 2026.9.1).
 
-**Secrets.** Put these in your `secrets.yaml` (the one in the repo only has placeholders; don't commit real values): `wifi_ssid`, `wifi_password`, `api_encryption_key`, `ota_password`, `fallback_ap_password`, `purpleair_api_key`, `purpleair_sensor_index`, `purpleair_backup_sensor_index` (optional), `airnow_api_key` and `airnow_zip`.
+**Secrets.** Put these in your `secrets.yaml` (the one in the repo only has placeholders; don't commit real values): `wifi_ssid`, `wifi_password`, `api_encryption_key` (also used for wireless updates), `fallback_ap_password`, `purpleair_api_key`, `purpleair_sensor_index`, `purpleair_backup_sensor_index` (optional), `airnow_api_key` and `airnow_zip`.
 
 **Settings** at the top of the config (`substitutions:`):
 *   `use_fahrenheit`: show °F on the display. Home Assistant still gets °C and converts it itself.
@@ -115,8 +118,9 @@ The config is `firmware/The Everything Bagel/air_sensor_epaper_ee05.yaml`. Compi
 Either or both can be left unset; without any outdoor data that part is simply skipped. Home Assistant gets the outdoor AQI and PM2.5 in use, and which source they came from.
 
 **The screen**
-*   The main page shows the recommendation, icon and indoor US AQI on the left, and all 9 readings on the right.
-*   Readings past their limit are drawn white-on-black. The limits are CO2 over 1000 ppm, PM2.5 over 25, PM10 over 45, VOC index 150+, NOx index 20+ and humidity outside 30–60%. They're all in `aqi_limits` in `aqi_algo.h`.
+*   The main page shows the recommendation, icon and indoor US AQI on the left, and 9 readings on the right. With an SFA40 fitted, formaldehyde (HCHO, in ppb) takes the place of PM4, which Home Assistant still gets.
+*   Readings past their limit are drawn white-on-black. The limits are CO2 over 1000 ppm, PM2.5 over 25, PM10 over 45, VOC index 150+, NOx index 20+, formaldehyde over 80 ppb and humidity outside 30–60%. They're all in `aqi_limits` in `aqi_algo.h`.
+*   Formaldehyde over 80 ppb (the WHO guideline, 0.1 mg/m³) means "Ventilate", and over 40 ppb (Health Canada's long-term limit) "Cons. Vent". If the outside air is polluted, high formaldehyde still gets "Vent Briefly", because a purifier's particle filter doesn't remove it.
 *   Arrows on CO2 and PM2.5 show a clear rise or fall over the last 10 minutes.
 *   The header shows the date, outdoor AQI and time, plus a Wi-Fi-off icon when the connection drops.
 *   If the SEN66 stops responding, the screen says so and shows dashes instead of old readings.
@@ -129,7 +133,7 @@ Either or both can be left unset; without any outdoor data that part is simply s
 
 If the image comes out mirrored or upside down on your panel, change `rotation:` (0/90/180/270), or add `transform: {mirror_x: false, mirror_y: false}` to the display.
 
-**Desktop preview.** `esphome run eg_host.yaml` shows the screens with made-up readings (needs SDL2). Add `-s preview_page 1` for the trend page, or `-s use_fahrenheit true -s preview_wifi false`.
+**Desktop preview.** `esphome run eg_host.yaml` shows the screens with made-up readings (needs SDL2). Add `-s preview_page 1` for the trend page, `-s use_fahrenheit true -s preview_wifi false`, or `-s preview_hcho 23` for the layout with an SFA40.
 
 ## Home Assistant Dashboard
 
