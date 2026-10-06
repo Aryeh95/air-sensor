@@ -54,6 +54,7 @@ Assemble by connecting the 3V, GND, SDA and SCL pins as shown in the video.
 
 ![Display layout preview](firmware/The%20Everything%20Bagel/layout_preview.png)
 ![Trend page preview](firmware/The%20Everything%20Bagel/layout_preview_trend.png)
+![With the optional SFA40 formaldehyde sensor](firmware/The%20Everything%20Bagel/layout_preview_sfa40.png)
 
 #### 1. Parts
 
