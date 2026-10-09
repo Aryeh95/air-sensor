@@ -319,6 +319,9 @@ struct Frame {
   AQIAdvice advice;
   int indoor_aqi = -1;
   bool redraw = false;
+  // Big areas of the screen change (page, icon or advice). A partial refresh leaves large new
+  // black areas grey and speckled, so these get a full refresh.
+  bool full_refresh = false;
 };
 
 // Works out the advice and what should be on screen. frame.redraw says whether it changed.
@@ -420,6 +423,11 @@ inline Frame update_state(Readings r, esphome::ESPTime time, bool wifi_ok, bool 
 
   std::string sig = m.signature();
   f.redraw = ui.force || !ui.has_model || sig != ui.signature;
+  if (f.redraw && ui.has_model) {
+    const DisplayModel &old = ui.model;
+    f.full_refresh = m.page != old.page || m.advice.icon != old.advice.icon || m.advice.status != old.advice.status ||
+                     m.advice.action != old.advice.action;
+  }
   if (f.redraw) {
     ui.model = m;
     ui.signature = sig;

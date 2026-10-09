@@ -238,7 +238,7 @@ sensor:
       id: sen66_humidity
       filters:
         # Keep humidity consistent with the corrected temperature
-        - lambda: return compensate_humidity(x, id(sen66_temp).raw_state, ${temperature_offset});
+        - lambda: return compensate_humidity(x, id(sen66_temp)->get_raw_state(), ${temperature_offset});
     voc_index:
       name: VOC Index
       id: sen66_voc
@@ -340,7 +340,10 @@ script:
           if (!(std::isnan(aqi) && std::isnan(id(indoor_aqi).state)) && id(indoor_aqi).state != aqi)
             id(indoor_aqi).publish_state(aqi);
 
-          if (f.redraw) id(internal_display).update();
+          if (f.redraw) {
+            if (f.full_refresh) EPaperFullRefresh::arm(id(internal_display));
+            id(internal_display).update();
+          }
 
   # Current PM2.5 from a nearby outdoor PurpleAir sensor, EPA-corrected.
   # If it has no usable reading, the backup sensor is tried (so it costs no points normally).
@@ -408,7 +411,7 @@ script:
             wifi.connected:
           then:
             - http_request.get:
-                url: "https://www.airnowapi.org/aq/observation/zipCode/current/?format=application/json&zipCode=${airnow_zip}&distance=25&API_KEY=${airnow_api_key}"
+                url: "https://www.airnowapi.org/aq/observation/current/ziplatlong/?format=application/json&zipCode=${airnow_zip}&distance=25&API_KEY=${airnow_api_key}"
                 capture_response: true
                 max_response_buffer_size: 4kB
                 on_response:
@@ -420,7 +423,7 @@ script:
                         }
                         AirNowResult result = parse_airnow(body);
                         if (!result.ok) {
-                          ESP_LOGW("airnow", "No AirNow observations for this ZIP code");
+                          ESP_LOGW("airnow", "No AirNow reading: %s", result.error.c_str());
                           return;
                         }
                         float pm25 = pm25_from_us_aqi(result.pm25_aqi);
@@ -471,9 +474,9 @@ display:
     # EE04/EE05 pins: CS=GPIO44, DC=GPIO10, RESET=GPIO38, BUSY=GPIO4
     model: seeed-ee04-mono-4.26
     update_interval: never
-    # Partial refreshes in between; a full (flashing) refresh every 30 redraws clears ghosting.
-    # Key3 forces one at any time.
-    full_update_every: 30
+    # Number changes use quick partial refreshes. A full (flashing) refresh happens when the
+    # advice or page changes, and every 20 redraws to clear ghosting. Key3 forces one at any time.
+    full_update_every: 20
     # Landscape. Use rotation: 180 if you mount it the other way up.
     rotation: 0
     lambda: |-

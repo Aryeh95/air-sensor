@@ -6,25 +6,32 @@
 #include "esphome/components/epaper_spi/epaper_spi.h"
 
 // ---------------------------------------------------------------------------
-// AirNow current observations
-// https://docs.airnowapi.org/CurrentObservationsByZip/docs
-// The response is a JSON array with one entry per pollutant (O3, PM2.5, PM10), each with an AQI.
+// AirNow current observations by ZIP code or lat/long
+// https://docs.airnowapi.org/webservices ("Current Observations: By Zip Code or Lat/Long")
+// This service replaced /aq/observation/zipCode/current/, which AirNow retired on 1 October 2026.
+// The response is a JSON array with one entry per pollutant (OZONE, PM2.5, PM10), each from the
+// closest monitor for that pollutant, with a NowCast AQI. With no data, it's an error object instead.
 // ---------------------------------------------------------------------------
 struct AirNowResult {
   bool ok = false;
-  int aqi = -1;       // overall AQI: the highest of the pollutants, as AirNow reports it
-  int pm25_aqi = -1;  // PM2.5 AQI, -1 if the station doesn't report PM2.5
+  int aqi = -1;       // overall AQI: the highest of the pollutants
+  int pm25_aqi = -1;  // PM2.5 AQI, -1 if no monitor nearby reports PM2.5
+  std::string error;
 };
 
 inline AirNowResult parse_airnow(const std::string &body) {
   AirNowResult r;
   JsonDocument doc = esphome::json::parse_json(body);
   JsonArray observations = doc.as<JsonArray>();
-  if (observations.isNull())
+  if (observations.isNull()) {
+    // e.g. {"WebServiceError":[{"Message":"..."}]}
+    const char *message = doc["WebServiceError"][0]["Message"] | "unreadable response";
+    r.error = message;
     return r;
+  }
   for (JsonObject o : observations) {
-    const int aqi = o["AQI"] | -1;
-    const char *parameter = o["ParameterName"] | "";
+    const int aqi = o["nowcastAQI"] | (o["AQI"] | -1);  // "AQI" in the retired service
+    const char *parameter = o["parameterName"] | (o["ParameterName"] | "");
     if (aqi < 0)
       continue;
     r.ok = true;
@@ -32,6 +39,8 @@ inline AirNowResult parse_airnow(const std::string &body) {
     if (strcmp(parameter, "PM2.5") == 0)
       r.pm25_aqi = aqi;
   }
+  if (!r.ok)
+    r.error = "no observations within 25 miles";
   return r;
 }
 
