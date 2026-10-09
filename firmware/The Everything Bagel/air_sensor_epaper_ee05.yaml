@@ -151,9 +151,7 @@ binary_sensor:
     filters:
       - delayed_on: 20ms
     on_press:
-      - lambda: |-
-          EPaperFullRefresh::arm(id(internal_display));
-          request_redraw();
+      - lambda: request_redraw(true);
       - script.execute: refresh
 
 font:
@@ -343,9 +341,22 @@ script:
             id(indoor_aqi).publish_state(aqi);
 
           if (f.redraw) {
-            if (f.full_refresh) EPaperFullRefresh::arm(id(internal_display));
-            id(internal_display).update();
+            if (EPaperControl::busy(id(internal_display))) {
+              // Still drawing the last frame: keep this one (and any full refresh) for a retry
+              request_redraw(f.full_refresh);
+              id(refresh_retry).execute();
+            } else {
+              if (f.full_refresh) EPaperControl::arm_full_refresh(id(internal_display));
+              id(internal_display).update();
+            }
           }
+
+  # Runs the refresh again shortly when the display was still busy
+  - id: refresh_retry
+    mode: restart
+    then:
+      - delay: 2s
+      - script.execute: refresh
 
   # Current PM2.5 from a nearby outdoor PurpleAir sensor, EPA-corrected.
   # If it has no usable reading, the backup sensor is tried (so it costs no points normally).

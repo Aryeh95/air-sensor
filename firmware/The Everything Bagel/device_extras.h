@@ -132,12 +132,16 @@ inline bool handle_purpleair_response(int status, const std::string &body, const
 }
 
 // ---------------------------------------------------------------------------
-// Full refresh on demand (Key3). The epaper_spi driver decides between a full and a partial
-// refresh with a protected counter and has no public way to reset it, so this reaches it
-// through a derived class. The next update after calling this is a full refresh.
+// The epaper_spi driver keeps its refresh counter and state protected, so this reaches them
+// through a derived class.
 // ---------------------------------------------------------------------------
-struct EPaperFullRefresh : public esphome::epaper_spi::EPaperBase {
-  static void arm(esphome::epaper_spi::EPaperBase *display) {
-    static_cast<EPaperFullRefresh *>(display)->update_count_ = 0;
+struct EPaperControl : public esphome::epaper_spi::EPaperBase {
+  // Makes the next update a full refresh (the driver does one when the counter is 0)
+  static void arm_full_refresh(esphome::epaper_spi::EPaperBase *display) {
+    static_cast<EPaperControl *>(display)->update_count_ = 0;
+  }
+  // Still drawing the previous frame. The driver ignores update() until it's done.
+  static bool busy(esphome::epaper_spi::EPaperBase *display) {
+    return static_cast<EPaperControl *>(display)->state_ != esphome::epaper_spi::EPaperState::IDLE;
   }
 };

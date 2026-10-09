@@ -231,6 +231,7 @@ struct UiState {
   std::string signature;
   bool has_model = false;
   bool force = false;
+  bool force_full = false;  // a full refresh is still owed (Key3, or one the busy display missed)
   int page = 0;
   uint32_t page_since = 0;
   ReadingHistory history;
@@ -271,7 +272,11 @@ inline void set_outdoor(OutdoorSource source, int aqi, float pm25) {
   o.pm25 = pm25;
 }
 
-inline void request_redraw() { ui.force = true; }
+// Redraws on the next refresh; `full` makes it a full (flashing) refresh
+inline void request_redraw(bool full = false) {
+  ui.force = true;
+  ui.force_full = ui.force_full || full;
+}
 
 inline void toggle_page() {
   ui.page = ui.page == 0 ? 1 : 0;
@@ -429,10 +434,12 @@ inline Frame update_state(Readings r, esphome::ESPTime time, bool wifi_ok, bool 
                      m.advice.action != old.advice.action;
   }
   if (f.redraw) {
+    f.full_refresh = f.full_refresh || ui.force_full;
     ui.model = m;
     ui.signature = sig;
     ui.has_model = true;
     ui.force = false;
+    ui.force_full = false;
   }
   return f;
 }
