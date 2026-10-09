@@ -101,9 +101,23 @@ Flash the firmware and watch the logs for a few minutes. If you see `Found i2c d
 Any EE05 + 4.26" enclosure works as long as the SEN66's inlets and outlet can reach room air. For the "Cattt Casing" (EE05 frame / back plate / back cap / stand), print the [SEN66 side-pod](enclosure/ee05_sen66_pod/) and make one cable hole in the back plate. Details are in that folder's README.
 
 #### 5. Firmware
-The config is `firmware/The Everything Bagel/air_sensor_epaper_ee05.yaml`. Compile it yourself with ESPHome Builder or the ESPHome CLI (Method B above), after copying `aqi_algo.h`, `display_renderer.h`, `device_extras.h` and the three `.png` icons next to it. It needs ESPHome 2026.9 or newer (for the `sfa40` component; tested with 2026.9.1).
+The config is `firmware/The Everything Bagel/air_sensor_epaper_ee05.yaml`. It needs ESPHome 2026.9 or newer (for the `sfa40` component; tested with 2026.9.1). There are two ways to build it with ESPHome Builder or the ESPHome CLI:
 
-**Secrets.** Put these in your `secrets.yaml` (the one in the repo only has placeholders; don't commit real values): `wifi_ssid`, `wifi_password`, `api_encryption_key` (also used for wireless updates), `fallback_ap_password`, `purpleair_api_key`, `purpleair_sensor_index`, `purpleair_backup_sensor_index` (optional), `airnow_api_key` and `airnow_zip`.
+*   **Straight from GitHub (no files to copy).** Make your device's config just this, and ESPHome downloads the firmware files itself. To pick up changes, click Install again; `refresh` sets how often it checks GitHub (`always` checks every time). Settings from the list below can go under `substitutions:` here.
+    ```yaml
+    substitutions:
+      use_fahrenheit: "false"
+
+    packages:
+      air_sensor:
+        url: https://github.com/aryeh95/air-sensor
+        ref: main            # the branch to build from
+        files: ["firmware/The Everything Bagel/air_sensor_epaper_ee05.yaml"]
+        refresh: 1d
+    ```
+*   **From local copies.** Copy `air_sensor_epaper_ee05.yaml`, `aqi_algo.h`, `display_renderer.h`, `device_extras.h` and the three `.png` icons into your ESPHome config folder, and copy them again after each update.
+
+**Secrets.** Either way, put these in your own `secrets.yaml` in the ESPHome config folder (`secrets.example.yaml` in the repo lists them with placeholders; don't commit real values): `wifi_ssid`, `wifi_password`, `api_encryption_key` (also used for wireless updates), `fallback_ap_password`, `purpleair_api_key`, `purpleair_sensor_index`, `purpleair_backup_sensor_index` (optional), `airnow_api_key` and `airnow_zip`.
 
 **Settings** at the top of the config (`substitutions:`):
 *   `use_fahrenheit`: show °F on the display. Home Assistant still gets °C and converts it itself.

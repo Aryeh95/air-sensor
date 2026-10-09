@@ -6,7 +6,9 @@
 #     without one, the screen keeps its PM4 tile and the log shows one "sfa40" error at boot.
 # Works standalone: time comes from the internet (SNTP) and outdoor air quality from a nearby
 # PurpleAir sensor (with an optional backup sensor), then AirNow as the fallback. Home Assistant is optional.
-# Put your passwords, API keys, PurpleAir sensor number and ZIP code in secrets.yaml.
+# Put your passwords, API keys, PurpleAir sensor number and ZIP code in your own secrets.yaml
+# (secrets.example.yaml lists them). Keep no secrets.yaml in this folder: when this file is used
+# as a package from GitHub, ESPHome would read that one instead of yours.
 substitutions:
   # Show temperature in Fahrenheit on the display (Home Assistant always gets Celsius)
   use_fahrenheit: "false"
