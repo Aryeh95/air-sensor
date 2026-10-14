@@ -44,9 +44,10 @@ FRAME_BOSS_TOP_Z = -46.43    # back face of the frame's screw bosses (8.2 mm dee
 SUPPORT_POST_TIP_Z = -49.55  # back face of the display support's EE05 posts (10 mm deep, 7+ mm across)
 EE05_POSTS = [(-6.86, -36.57), (20.22, -36.55), (-6.91, -15.57), (20.22, -15.55)]
 
-# --- SEN66 package (datasheet: 55.2 x 25.6 x 21.3 mm) ---
+# --- SEN66 package: the larger of the datasheet (55.2 x 25.6 x 21.3 mm) and a real sensor
+# measured with calipers (55.0 x 26.0 x 21.2 mm) ---
 SEN_LENGTH = 55.2          # along Y
-SEN_WIDTH = 25.6           # along Z (depth off the back plate)
+SEN_WIDTH = 26.0           # along Z (depth off the back plate)
 SEN_HEIGHT = 21.3          # along X (connector face -> inlet/outlet face)
 
 # --- Pod parameters ---
@@ -58,22 +59,33 @@ SCREW_CLEARANCE_D = 3.2    # clears M2 / M2.5 / M3
 # Added to the diameter of every screw and insert hole. Printers often make small holes undersize:
 # print a part, measure a hole and set this to (designed - measured), e.g. 4.0 - 3.5 = 0.5.
 HOLE_COMPENSATION = 0.0
+# Added to the sensor clearance on every side. Printers that make holes small also make the
+# sensor pocket small: about half the hole compensation (e.g. 0.25 for 0.5).
+CAVITY_COMPENSATION = 0.0
 CAVITY_TOP_Y = -30.0       # keeps clear of the top screw head
 CORNER_RADIUS = 2.0
 SEGMENTS = 64
 
-# Derived cavity
-CAV_X1 = FRAME_RIGHT_X - WALL
-CAV_X0 = CAV_X1 - (SEN_HEIGHT + 2 * CLEARANCE)
-CAV_Y0 = CAVITY_TOP_Y
-CAV_Y1 = CAV_Y0 + SEN_LENGTH + 2 * CLEARANCE
-CAV_Z1 = FRAME_BACK_Z - 0.05  # pod mating face, just clear of the frame rim
-CAV_Z0 = CAV_Z1 - (SEN_WIDTH + 2 * CLEARANCE)
 
-# Sensor placement: inlets at the bottom, outlet (fan) at the top so warm exhaust rises
-# away from the inlets. u runs along the sensor length from the inlet end, v across its width.
-SEN_Y_INLET_END = CAV_Y1 - CLEARANCE
-SEN_Z_BACK = CAV_Z0 + CLEARANCE
+
+def configure(cavity_compensation=0.0):
+    """Works out the sensor pocket. Called again if --cavity-comp is given."""
+    global CAVITY_COMPENSATION, GAP, CAV_X1, CAV_X0, CAV_Y0, CAV_Y1, CAV_Z1, CAV_Z0, SEN_Y_INLET_END, SEN_Z_BACK
+    CAVITY_COMPENSATION = cavity_compensation
+    GAP = CLEARANCE + CAVITY_COMPENSATION
+    CAV_X1 = FRAME_RIGHT_X - WALL
+    CAV_X0 = CAV_X1 - (SEN_HEIGHT + 2 * GAP)
+    CAV_Y0 = CAVITY_TOP_Y
+    CAV_Y1 = CAV_Y0 + SEN_LENGTH + 2 * GAP
+    CAV_Z1 = FRAME_BACK_Z - 0.05  # pod mating face, just clear of the frame rim
+    CAV_Z0 = CAV_Z1 - (SEN_WIDTH + 2 * GAP)
+    # Sensor placement: inlets at the bottom, outlet (fan) at the top so warm exhaust rises
+    # away from the inlets. u runs along the sensor length from the inlet end, v across its width.
+    SEN_Y_INLET_END = CAV_Y1 - GAP
+    SEN_Z_BACK = CAV_Z0 + GAP
+
+
+configure()
 
 
 def sensor_y(u):
@@ -168,8 +180,7 @@ def insert_holes(points, top_z, insert):
 
 
 def sensor_dummy():
-    return box(CAV_X0 + CLEARANCE, CAV_X1 - CLEARANCE, CAV_Y0 + CLEARANCE, CAV_Y1 - CLEARANCE,
-               CAV_Z0 + CLEARANCE, CAV_Z1 - CLEARANCE)
+    return box(CAV_X0 + GAP, CAV_X1 - GAP, CAV_Y0 + GAP, CAV_Y1 - GAP, CAV_Z0 + GAP, CAV_Z1 - GAP)
 
 
 def to_trimesh(m):
@@ -198,10 +209,13 @@ def main():
     parser.add_argument("--support", help="original display support STL; writes a copy with M2 heat-set insert holes")
     parser.add_argument("--hole-comp", type=float, default=HOLE_COMPENSATION,
                         help="mm added to every screw/insert hole diameter (designed minus measured)")
+    parser.add_argument("--cavity-comp", type=float, default=CAVITY_COMPENSATION,
+                        help="mm added to the sensor clearance on every side (about half of --hole-comp)")
     parser.add_argument("--assembly", action="store_true", help="also write the pod in assembly position")
     parser.add_argument("--out", default=os.path.dirname(os.path.abspath(__file__)))
     args = parser.parse_args()
     HOLE_COMPENSATION = args.hole_comp
+    configure(args.cavity_comp)
 
     pod = build_pod()
     print_orientation(pod).export(os.path.join(args.out, "sen66_pod.stl"))

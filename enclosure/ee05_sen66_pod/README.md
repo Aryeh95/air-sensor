@@ -51,6 +51,8 @@ CNC Kitchen's guidelines.
   difference, e.g. `--hole-comp 0.5` when a 4.0 mm hole measures 3.5 mm. It enlarges every screw
   and insert hole (frame, support, back plate and pod tabs). With 0.5 the walls are still 1.6 mm
   (M3) and 1.4 mm (M2). Alternatively, use your slicer's hole compensation setting (not both).
+- The sensor pocket shrinks the same way, so add about half that to its clearance too:
+  `--hole-comp 0.5 --cavity-comp 0.25`.
 
 **Without inserts, using the original frame and support (as the designer intended).** M2.5 screws
 cut their own thread in the 2.5 mm printed bosses; printed holes come out slightly undersize.
@@ -109,12 +111,14 @@ lengths above give 4 mm of thread.
 
 ```
 pip install trimesh manifold3d numpy
-python make_pod.py [--backplate Backplate.stl] [--frame "EN05 frame thick.stl"] [--support support.stl] [--hole-comp 0.5] [--assembly]
+python make_pod.py [--backplate Backplate.stl] [--frame "EN05 frame thick.stl"] [--support support.stl] [--hole-comp 0.5] [--cavity-comp 0.25] [--assembly]
 ```
 
 All dimensions (wall thickness, clearance, tab size, screw hole size, pod position) are
 constants at the top of `make_pod.py`. `--assembly` also writes the pod in the enclosure's
 assembly coordinates, so you can load it together with the original STLs to check the fit.
 
-This pod is designed from measurements of the enclosure STLs and the SEN66 datasheet. It hasn't
+This pod is designed from measurements of the enclosure STLs, the SEN66 datasheet and a real
+SEN66 measured with calipers (55.0 x 26.0 x 21.2 mm; the datasheet says 25.6 mm wide, and the pod
+uses the larger figure). It hasn't
 been test-printed yet, so print it and dry-fit it before final assembly.
