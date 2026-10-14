@@ -96,7 +96,10 @@ lengths above give 4 mm of thread.
    - generate a back plate with the hole (and 3.2 mm screw holes) already in it:
      `python make_pod.py --backplate "Backplate.stl"`
 2. Feed the bare-wire end of the SEN66 cable through the hole from the outside and plug the
-   connector into the sensor. Route the cable through the channel under the sensor.
+   connector into the sensor. Bend the wires flat into the groove that runs across the connector
+   side, and lead them out of the groove's opening on the **SENSIRION-logo side** (not the label
+   side): that side faces the back plate and the cable hole. Nothing should stick out above the
+   connector face, which sits about 0.5 mm from the pod's inner wall.
 3. Put the SEN66 into the pod with its inlet/outlet face against the windows (round fan outlet in
    the top window) and the connector side against the inner wall.
 4. Put the pod, with the sensor in it, onto the back plate and fix it with the two screws on that
