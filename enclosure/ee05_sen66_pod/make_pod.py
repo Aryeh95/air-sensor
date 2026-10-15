@@ -68,8 +68,11 @@ SEGMENTS = 64
 
 
 
-def configure(cavity_compensation=0.0):
-    """Works out the sensor pocket. Called again if --cavity-comp is given."""
+def configure(cavity_compensation=0.0, sensor=None):
+    """Works out the sensor pocket. Called again if --cavity-comp or --sensor is given."""
+    global SEN_LENGTH, SEN_WIDTH, SEN_HEIGHT
+    if sensor:
+        SEN_LENGTH, SEN_WIDTH, SEN_HEIGHT = sensor
     global CAVITY_COMPENSATION, GAP, CAV_X1, CAV_X0, CAV_Y0, CAV_Y1, CAV_Z1, CAV_Z0, SEN_Y_INLET_END, SEN_Z_BACK
     CAVITY_COMPENSATION = cavity_compensation
     GAP = CLEARANCE + CAVITY_COMPENSATION
@@ -211,11 +214,13 @@ def main():
                         help="mm added to every screw/insert hole diameter (designed minus measured)")
     parser.add_argument("--cavity-comp", type=float, default=CAVITY_COMPENSATION,
                         help="mm added to the sensor clearance on every side (about half of --hole-comp)")
+    parser.add_argument("--sensor", type=float, nargs=3, metavar=("LENGTH", "WIDTH", "HEIGHT"),
+                        help="your SEN66 measured with calipers, in mm (default: the larger of datasheet and a measured one)")
     parser.add_argument("--assembly", action="store_true", help="also write the pod in assembly position")
     parser.add_argument("--out", default=os.path.dirname(os.path.abspath(__file__)))
     args = parser.parse_args()
     HOLE_COMPENSATION = args.hole_comp
-    configure(args.cavity_comp)
+    configure(args.cavity_comp, args.sensor)
 
     pod = build_pod()
     print_orientation(pod).export(os.path.join(args.out, "sen66_pod.stl"))
